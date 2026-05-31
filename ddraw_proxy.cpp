@@ -30,9 +30,59 @@ static FARPROC GetRealDdrawProc(const char *name)
     return proc;
 }
 
+
+// ============================================================
+// Crash logger
+// ============================================================
+
+static LONG WINAPI CrashHandler(EXCEPTION_POINTERS *ep)
+{
+    if (!ep || !ep->ExceptionRecord || !ep->ContextRecord) {
+        return EXCEPTION_CONTINUE_SEARCH;
+    }
+
+    EXCEPTION_RECORD *er = ep->ExceptionRecord;
+    CONTEXT *ctx = ep->ContextRecord;
+
+    LogLine("=== Unhandled exception ===");
+    LogLine("ExceptionCode=0x%08lX Address=%p",
+            (unsigned long)er->ExceptionCode,
+            er->ExceptionAddress);
+
+    if (er->ExceptionCode == EXCEPTION_ACCESS_VIOLATION &&
+        er->NumberParameters >= 2) {
+        LogLine("AccessViolation type=%s address=%p",
+                er->ExceptionInformation[0] ? "write" : "read",
+                (void *)er->ExceptionInformation[1]);
+    }
+
+#if defined(_M_IX86)
+    LogLine("EAX=%08lX EBX=%08lX ECX=%08lX EDX=%08lX",
+            (unsigned long)ctx->Eax,
+            (unsigned long)ctx->Ebx,
+            (unsigned long)ctx->Ecx,
+            (unsigned long)ctx->Edx);
+    LogLine("ESI=%08lX EDI=%08lX EBP=%08lX ESP=%08lX",
+            (unsigned long)ctx->Esi,
+            (unsigned long)ctx->Edi,
+            (unsigned long)ctx->Ebp,
+            (unsigned long)ctx->Esp);
+    LogLine("EIP=%08lX EFLAGS=%08lX",
+            (unsigned long)ctx->Eip,
+            (unsigned long)ctx->EFlags);
+#else
+    LogLine("Crash register dump is enabled for x86 builds only.");
+#endif
+
+    return EXCEPTION_CONTINUE_SEARCH;
+}
+
 static DWORD WINAPI InitThread(void *)
 {
     BuildPaths();
+
+    SetUnhandledExceptionFilter(CrashHandler);
+    LogLine("CrashHandler installed");
 
     HMODULE exe = GetModuleHandleA(NULL);
 
@@ -40,6 +90,7 @@ static DWORD WINAPI InitThread(void *)
 
     InstallRegistryHooks(exe);
     InstallCdHooks(exe);
+    InstallBugFixes(exe);
 
     LogLine("InitThread done");
     return 0;

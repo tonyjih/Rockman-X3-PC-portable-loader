@@ -34,3 +34,4 @@ bool PatchIAT(
 
 void InstallRegistryHooks(HMODULE exe);
 void InstallCdHooks(HMODULE exe);
+void InstallBugFixes(HMODULE exe);
