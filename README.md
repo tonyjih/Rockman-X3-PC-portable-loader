@@ -1,6 +1,6 @@
 # Mega Man X3 / Rockman X3 Portable + Bugfix Loader
 
-Source package for a `ddraw.dll` proxy-based portable loader for the PC versions of **Mega Man X3** and **Rockman X3**.
+Source package for a `ddraw.dll` proxy-based portable loader for the 1997 PC versions of **Mega Man X3** and **Rockman X3**.
 
 This project makes the game portable by virtualizing the original registry/CD checks, and includes a gameplay bugfix for a long-standing PC-version boss projectile crash.
 
