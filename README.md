@@ -94,6 +94,25 @@ Older standalone key-config files are intentionally not used. The current portab
 
 This allows the game to run without requiring the original installer registry state.
 
+## Runtime patch switches
+
+`MMX3.conf` can also control runtime patches through a `[Patches]` section:
+
+```ini
+[Patches]
+BossProjectileFix=True
+Fractional60FpsTimer=True
+NormalizeScreenMode=True
+```
+
+The defaults keep all current compatibility fixes enabled. Set a value to `False` to disable that patch for testing or to reproduce original behavior.
+
+| Key | Effect |
+| --- | --- |
+| `BossProjectileFix` | Enables the PC boss projectile crash fix. |
+| `Fractional60FpsTimer` | Enables the fractional 60 FPS main-timer thread hook when the build timer mode is `MMX3_TIMER_MODE_FRACTIONAL_60`. |
+| `NormalizeScreenMode` | Normalizes problematic `Screen Mode=640,480,8` config data to `640,480,32` to avoid the broken modern fullscreen path. |
+
 ## CD audio / CD-ROM behavior
 
 The fake CD audio path intentionally keeps the original MCI wrapper flow alive instead of directly bypassing the CD audio initialization logic.

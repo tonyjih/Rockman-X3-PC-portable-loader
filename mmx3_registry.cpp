@@ -94,6 +94,10 @@ struct Mmx3PortableConfig
     char fullScreen[16];
     char screenMode[64];
 
+    char patchBossProjectileFix[16];
+    char patchFractional60FpsTimer[16];
+    char patchNormalizeScreenMode[16];
+
     BYTE gamePad[MMX3_CONFIG_BINARY_MAX];
     DWORD gamePadSize;
     bool hasGamePad;
@@ -114,6 +118,78 @@ static Mmx3PortableConfig g_config;
 static bool IsValue(LPCSTR a, LPCSTR b)
 {
     return a && b && lstrcmpiA(a, b) == 0;
+}
+
+static BOOL ConfigTextToBool(const char *text, BOOL defaultValue)
+{
+    if (!text || !text[0]) {
+        return defaultValue;
+    }
+
+    if (_stricmp(text, "1") == 0 ||
+        _stricmp(text, "true") == 0 ||
+        _stricmp(text, "yes") == 0 ||
+        _stricmp(text, "on") == 0 ||
+        _stricmp(text, "enable") == 0 ||
+        _stricmp(text, "enabled") == 0) {
+        return TRUE;
+    }
+
+    if (_stricmp(text, "0") == 0 ||
+        _stricmp(text, "false") == 0 ||
+        _stricmp(text, "no") == 0 ||
+        _stricmp(text, "off") == 0 ||
+        _stricmp(text, "disable") == 0 ||
+        _stricmp(text, "disabled") == 0) {
+        return FALSE;
+    }
+
+    return defaultValue;
+}
+
+static void SyncPatchConfigFromPortableStrings()
+{
+    g_patchConfig.bossProjectileFix = ConfigTextToBool(
+        g_config.patchBossProjectileFix,
+        g_patchConfig.bossProjectileFix);
+    g_patchConfig.fractional60FpsTimer = ConfigTextToBool(
+        g_config.patchFractional60FpsTimer,
+        g_patchConfig.fractional60FpsTimer);
+    g_patchConfig.normalizeScreenMode = ConfigTextToBool(
+        g_config.patchNormalizeScreenMode,
+        g_patchConfig.normalizeScreenMode);
+}
+
+static void NormalizeScreenModeValue(char *value, size_t valueSize)
+{
+    if (!g_patchConfig.normalizeScreenMode || !value || valueSize == 0) {
+        return;
+    }
+
+    int width = 0;
+    int height = 0;
+    int bpp = 0;
+
+    if (sscanf(value, "%d,%d,%d", &width, &height, &bpp) != 3) {
+        CopyMemory(value, "640,480,32", 11);
+        if (valueSize > 11) {
+            value[11] = '\0';
+        } else {
+            value[valueSize - 1] = '\0';
+        }
+        LogLine("NormalizeScreenMode: invalid value -> 640,480,32");
+        return;
+    }
+
+    if (width == 640 && height == 480 && bpp == 8) {
+        CopyMemory(value, "640,480,32", 11);
+        if (valueSize > 11) {
+            value[11] = '\0';
+        } else {
+            value[valueSize - 1] = '\0';
+        }
+        LogLine("NormalizeScreenMode: 640,480,8 -> 640,480,32");
+    }
 }
 
 static bool ContainsNoCase(const char *s, const char *needle)
@@ -433,7 +509,13 @@ static void InitConfigDefaults()
     CopyString(g_config.doubleView, sizeof(g_config.doubleView), "True");
     CopyString(g_config.easyMode, sizeof(g_config.easyMode), "True");
     CopyString(g_config.fullScreen, sizeof(g_config.fullScreen), "False");
-    CopyString(g_config.screenMode, sizeof(g_config.screenMode), "640,480,32");
+    CopyString(
+        g_config.screenMode,
+        sizeof(g_config.screenMode),
+        g_patchConfig.normalizeScreenMode ? "640,480,32" : "640,480,8");
+    CopyString(g_config.patchBossProjectileFix, sizeof(g_config.patchBossProjectileFix), MMX3BoolText(g_patchConfig.bossProjectileFix));
+    CopyString(g_config.patchFractional60FpsTimer, sizeof(g_config.patchFractional60FpsTimer), MMX3BoolText(g_patchConfig.fractional60FpsTimer));
+    CopyString(g_config.patchNormalizeScreenMode, sizeof(g_config.patchNormalizeScreenMode), MMX3BoolText(g_patchConfig.normalizeScreenMode));
 }
 
 static void LoadPortableConfig()
@@ -502,6 +584,14 @@ static void LoadPortableConfig()
             } else if (IsValue(key, "Screen Mode")) {
                 CopyString(g_config.screenMode, sizeof(g_config.screenMode), value);
             }
+        } else if (lstrcmpiA(section, "Patches") == 0) {
+            if (IsValue(key, "BossProjectileFix")) {
+                CopyString(g_config.patchBossProjectileFix, sizeof(g_config.patchBossProjectileFix), value);
+            } else if (IsValue(key, "Fractional60FpsTimer")) {
+                CopyString(g_config.patchFractional60FpsTimer, sizeof(g_config.patchFractional60FpsTimer), value);
+            } else if (IsValue(key, "NormalizeScreenMode")) {
+                CopyString(g_config.patchNormalizeScreenMode, sizeof(g_config.patchNormalizeScreenMode), value);
+            }
         } else if (lstrcmpiA(section, "KeyConfig") == 0) {
             DWORD decodedSize = 0;
 
@@ -525,6 +615,9 @@ static void LoadPortableConfig()
     }
 
     fclose(fp);
+
+    SyncPatchConfigFromPortableStrings();
+    NormalizeScreenModeValue(g_config.screenMode, sizeof(g_config.screenMode));
 }
 
 
@@ -550,7 +643,16 @@ static LONG SavePortableConfig()
     fprintf(fp, "DoubleView=%s\n", g_config.doubleView);
     fprintf(fp, "Easy Mode=%s\n", g_config.easyMode);
     fprintf(fp, "FullScreen=%s\n", g_config.fullScreen);
+    NormalizeScreenModeValue(g_config.screenMode, sizeof(g_config.screenMode));
+    CopyString(g_config.patchBossProjectileFix, sizeof(g_config.patchBossProjectileFix), MMX3BoolText(g_patchConfig.bossProjectileFix));
+    CopyString(g_config.patchFractional60FpsTimer, sizeof(g_config.patchFractional60FpsTimer), MMX3BoolText(g_patchConfig.fractional60FpsTimer));
+    CopyString(g_config.patchNormalizeScreenMode, sizeof(g_config.patchNormalizeScreenMode), MMX3BoolText(g_patchConfig.normalizeScreenMode));
     fprintf(fp, "Screen Mode=%s\n", g_config.screenMode);
+
+    fprintf(fp, "\n[Patches]\n");
+    fprintf(fp, "BossProjectileFix=%s\n", g_config.patchBossProjectileFix);
+    fprintf(fp, "Fractional60FpsTimer=%s\n", g_config.patchFractional60FpsTimer);
+    fprintf(fp, "NormalizeScreenMode=%s\n", g_config.patchNormalizeScreenMode);
 
     fprintf(fp, "\n[KeyConfig]\n");
     WriteHex(fp, "GamePad", g_config.hasGamePad ? g_config.gamePad : kDefaultGamePad,
@@ -644,6 +746,7 @@ static const char *RootConfigValue(LPCSTR lpValueName)
         return g_config.fullScreen;
     }
     if (IsValue(lpValueName, "Screen Mode")) {
+        NormalizeScreenModeValue(g_config.screenMode, sizeof(g_config.screenMode)); // RootConfigValue normalize
         return g_config.screenMode;
     }
 
@@ -678,6 +781,7 @@ static bool StoreRootConfigValue(LPCSTR lpValueName, DWORD dwType, const BYTE *l
     } else if (IsValue(lpValueName, "FullScreen")) {
         CopyString(g_config.fullScreen, sizeof(g_config.fullScreen), text);
     } else if (IsValue(lpValueName, "Screen Mode")) {
+        NormalizeScreenModeValue(text, sizeof(text)); // StoreRootConfigValue normalize
         CopyString(g_config.screenMode, sizeof(g_config.screenMode), text);
     } else {
         return false;

@@ -15,6 +15,21 @@ extern char g_passwordPath[MAX_PATH];
 extern char g_configPath[MAX_PATH];
 extern char g_logPath[MAX_PATH];
 
+// Patch toggles loaded from MMX3.conf [Patches].
+struct MMX3PatchConfig
+{
+    BOOL bossProjectileFix;
+    BOOL fractional60FpsTimer;
+    BOOL normalizeScreenMode;
+};
+
+extern MMX3PatchConfig g_patchConfig;
+
+void LoadPatchConfigDefaults();
+void LoadPatchConfigFromPortableConfig();
+BOOL GetPortableConfigBool(const char *section, const char *key, BOOL defaultValue);
+const char *MMX3BoolText(BOOL value);
+
 void BuildPaths();
 void LogLine(const char *fmt, ...);
 

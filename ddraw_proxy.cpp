@@ -80,6 +80,7 @@ static LONG WINAPI CrashHandler(EXCEPTION_POINTERS *ep)
 static DWORD WINAPI InitThread(void *)
 {
     BuildPaths();
+    LoadPatchConfigFromPortableConfig();
 
     SetUnhandledExceptionFilter(CrashHandler);
     LogLine("CrashHandler installed");

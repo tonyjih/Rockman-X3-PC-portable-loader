@@ -399,5 +399,9 @@ void InstallBugFixes(HMODULE exe)
     PatchProjectileStateLogger(exe);
 
     // Minimal root-cause fix for US / MEGAMAN X3.
-    PatchMissingMoveObjectArgument(exe);
+    if (g_patchConfig.bossProjectileFix) {
+        PatchMissingMoveObjectArgument(exe);
+    } else {
+        LogLine("BossProjectileFix skipped: disabled by MMX3.conf");
+    }
 }

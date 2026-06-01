@@ -757,6 +757,11 @@ static void InstallMainTimerFractional60Experiment(HMODULE exe)
 {
     (void)exe;
 
+    if (!g_patchConfig.fractional60FpsTimer) {
+        LogLine("MainTimerFractional60Experiment skipped: disabled by MMX3.conf");
+        return;
+    }
+
 #if MMX3_ENABLE_FRACTIONAL_60_EXPERIMENT
     BYTE *p = MMX3_ADDR_MAIN_TIMER_THREAD;
 

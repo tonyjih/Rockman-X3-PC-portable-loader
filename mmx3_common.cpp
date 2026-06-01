@@ -11,6 +11,106 @@ char g_passwordPath[MAX_PATH];
 char g_configPath[MAX_PATH];
 char g_logPath[MAX_PATH];
 
+
+MMX3PatchConfig g_patchConfig;
+
+const char *MMX3BoolText(BOOL value)
+{
+    return value ? "True" : "False";
+}
+
+static BOOL ParseConfigBoolText(const char *text, BOOL defaultValue)
+{
+    if (!text || !text[0]) {
+        return defaultValue;
+    }
+
+    if (_stricmp(text, "1") == 0 ||
+        _stricmp(text, "true") == 0 ||
+        _stricmp(text, "yes") == 0 ||
+        _stricmp(text, "on") == 0 ||
+        _stricmp(text, "enable") == 0 ||
+        _stricmp(text, "enabled") == 0) {
+        return TRUE;
+    }
+
+    if (_stricmp(text, "0") == 0 ||
+        _stricmp(text, "false") == 0 ||
+        _stricmp(text, "no") == 0 ||
+        _stricmp(text, "off") == 0 ||
+        _stricmp(text, "disable") == 0 ||
+        _stricmp(text, "disabled") == 0) {
+        return FALSE;
+    }
+
+    return defaultValue;
+}
+
+void LoadPatchConfigDefaults()
+{
+    g_patchConfig.bossProjectileFix = TRUE;
+    g_patchConfig.fractional60FpsTimer = TRUE;
+    g_patchConfig.normalizeScreenMode = TRUE;
+}
+
+BOOL GetPortableConfigBool(const char *section, const char *key, BOOL defaultValue)
+{
+    if (!g_configPath[0]) {
+        return defaultValue;
+    }
+
+    char value[64];
+    value[0] = 0;
+
+    GetPrivateProfileStringA(
+        section,
+        key,
+        MMX3BoolText(defaultValue),
+        value,
+        sizeof(value),
+        g_configPath);
+
+    return ParseConfigBoolText(value, defaultValue);
+}
+
+static void EnsurePortableConfigBool(const char *section, const char *key, BOOL defaultValue)
+{
+    if (!g_configPath[0]) {
+        return;
+    }
+
+    char value[64];
+    value[0] = 0;
+
+    GetPrivateProfileStringA(section, key, "", value, sizeof(value), g_configPath);
+
+    if (value[0] == 0) {
+        WritePrivateProfileStringA(section, key, MMX3BoolText(defaultValue), g_configPath);
+    }
+}
+
+void LoadPatchConfigFromPortableConfig()
+{
+    LoadPatchConfigDefaults();
+
+    EnsurePortableConfigBool("Patches", "BossProjectileFix", g_patchConfig.bossProjectileFix);
+    EnsurePortableConfigBool("Patches", "Fractional60FpsTimer", g_patchConfig.fractional60FpsTimer);
+    EnsurePortableConfigBool("Patches", "NormalizeScreenMode", g_patchConfig.normalizeScreenMode);
+
+    g_patchConfig.bossProjectileFix =
+        GetPortableConfigBool("Patches", "BossProjectileFix", g_patchConfig.bossProjectileFix);
+    g_patchConfig.fractional60FpsTimer =
+        GetPortableConfigBool("Patches", "Fractional60FpsTimer", g_patchConfig.fractional60FpsTimer);
+    g_patchConfig.normalizeScreenMode =
+        GetPortableConfigBool("Patches", "NormalizeScreenMode", g_patchConfig.normalizeScreenMode);
+
+    LogLine(
+        "PatchConfig: BossProjectileFix=%s Fractional60FpsTimer=%s NormalizeScreenMode=%s",
+        MMX3BoolText(g_patchConfig.bossProjectileFix),
+        MMX3BoolText(g_patchConfig.fractional60FpsTimer),
+        MMX3BoolText(g_patchConfig.normalizeScreenMode));
+}
+
 void LogLine(const char *fmt, ...)
 {
 #if MMX3_ENABLE_LOG
