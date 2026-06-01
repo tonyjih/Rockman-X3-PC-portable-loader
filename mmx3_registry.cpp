@@ -433,7 +433,7 @@ static void InitConfigDefaults()
     CopyString(g_config.doubleView, sizeof(g_config.doubleView), "True");
     CopyString(g_config.easyMode, sizeof(g_config.easyMode), "True");
     CopyString(g_config.fullScreen, sizeof(g_config.fullScreen), "False");
-    CopyString(g_config.screenMode, sizeof(g_config.screenMode), "640,480,8");
+    CopyString(g_config.screenMode, sizeof(g_config.screenMode), "640,480,32");
 }
 
 static void LoadPortableConfig()
