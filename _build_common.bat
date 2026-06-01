@@ -79,6 +79,7 @@ cl /nologo /LD /EHsc /O2 /DMMX3_ENABLE_LOG=%MMX3_LOG% ^
   mmx3_registry.cpp ^
   mmx3_cd.cpp ^
   mmx3_bugfix.cpp ^
+  mmx3_timing.cpp ^
   user32.lib winmm.lib ^
   /link /DEF:ddraw_proxy.def /OUT:ddraw.dll
 

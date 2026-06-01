@@ -88,10 +88,10 @@ static DWORD WINAPI InitThread(void *)
 
     LogLine("Init exe=%p", exe);
 
+	InstallTimingHooks(exe);
     InstallRegistryHooks(exe);
     InstallCdHooks(exe);
     InstallBugFixes(exe);
-
     LogLine("InitThread done");
     return 0;
 }

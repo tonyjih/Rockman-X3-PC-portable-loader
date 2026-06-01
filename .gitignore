@@ -1,2 +1,6 @@
 /ddraw.dll
 /*.obj
+
+MMX3.conf
+/*.exp
+/*.lib

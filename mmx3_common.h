@@ -12,9 +12,7 @@ extern char g_gameDir[MAX_PATH];
 extern char g_gameDriveRoot[4];
 
 extern char g_passwordPath[MAX_PATH];
-extern char g_keyGamePadPath[MAX_PATH];
-extern char g_keyKeyboardPath[MAX_PATH];
-extern char g_keySideWinderPath[MAX_PATH];
+extern char g_configPath[MAX_PATH];
 extern char g_logPath[MAX_PATH];
 
 void BuildPaths();
@@ -35,3 +33,4 @@ bool PatchIAT(
 void InstallRegistryHooks(HMODULE exe);
 void InstallCdHooks(HMODULE exe);
 void InstallBugFixes(HMODULE exe);
+void InstallTimingHooks(HMODULE exe);

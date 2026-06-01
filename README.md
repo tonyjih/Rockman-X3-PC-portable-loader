@@ -57,9 +57,7 @@ The loader may create the following files next to the game executable:
 
 ```text
 MMX3.sav
-KeyConfig_GamePad.bin
-KeyConfig_Keyboard.bin
-KeyConfig_SideWinder.bin
+MMX3.conf
 mmx3_portable.log
 ```
 
@@ -87,10 +85,10 @@ The loader redirects the original registry-based save/config behavior to local f
 
 ```text
 MMX3.sav
-KeyConfig_GamePad.bin
-KeyConfig_Keyboard.bin
-KeyConfig_SideWinder.bin
+MMX3.conf
 ```
+
+`MMX3.sav` stores the password/save-card data only. `MMX3.conf` stores the remaining portable configuration, including root registry options such as `Easy Mode`, `Screen Mode`, `FullScreen`, `DoubleView`, and the three `KeyConfig` binary blobs.
 
 This allows the game to run without requiring the original installer registry state.
 

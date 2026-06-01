@@ -2,6 +2,7 @@
 
 #include <stdio.h>
 #include <string.h>
+#include <ctype.h>
 
 // Real registry API pointers
 
@@ -77,6 +78,37 @@ static const BYTE kDefaultSideWinder[] = {
     0x0a,0x00, 0x0b,0x00
 };
 
+#define MMX3_CONFIG_BINARY_MAX 512
+
+struct Mmx3PortableConfig
+{
+    bool loaded;
+
+    char cdDrive[64];
+    char instProgram[16];
+    char instResource[16];
+    char instMovie[16];
+    char instBgm[16];
+    char doubleView[16];
+    char easyMode[16];
+    char fullScreen[16];
+    char screenMode[64];
+
+    BYTE gamePad[MMX3_CONFIG_BINARY_MAX];
+    DWORD gamePadSize;
+    bool hasGamePad;
+
+    BYTE keyboard[MMX3_CONFIG_BINARY_MAX];
+    DWORD keyboardSize;
+    bool hasKeyboard;
+
+    BYTE sideWinder[MMX3_CONFIG_BINARY_MAX];
+    DWORD sideWinderSize;
+    bool hasSideWinder;
+};
+
+static Mmx3PortableConfig g_config;
+
 // Helpers
 
 static bool IsValue(LPCSTR a, LPCSTR b)
@@ -132,6 +164,138 @@ static bool IsMMX3KeyConfigPath(LPCSTR subKey)
 {
     return IsMMX3BaseKeyPath(subKey) &&
            ContainsNoCase(subKey, "\\KeyConfig");
+}
+
+static char *Trim(char *s)
+{
+    if (!s) {
+        return s;
+    }
+
+    while (*s && isspace((unsigned char)*s)) {
+        s++;
+    }
+
+    char *end = s + strlen(s);
+    while (end > s && isspace((unsigned char)end[-1])) {
+        end--;
+    }
+    *end = '\0';
+
+    return s;
+}
+
+static void StripLineEnding(char *s)
+{
+    if (!s) {
+        return;
+    }
+
+    size_t n = strlen(s);
+    while (n > 0 && (s[n - 1] == '\r' || s[n - 1] == '\n')) {
+        s[n - 1] = '\0';
+        n--;
+    }
+}
+
+static int HexNibble(char c)
+{
+    if (c >= '0' && c <= '9') {
+        return c - '0';
+    }
+    if (c >= 'a' && c <= 'f') {
+        return c - 'a' + 10;
+    }
+    if (c >= 'A' && c <= 'F') {
+        return c - 'A' + 10;
+    }
+    return -1;
+}
+
+static bool DecodeHex(const char *text, BYTE *out, DWORD outMax, DWORD *outSize)
+{
+    if (outSize) {
+        *outSize = 0;
+    }
+
+    if (!text || !out || !outSize) {
+        return false;
+    }
+
+    DWORD count = 0;
+    int high = -1;
+
+    for (const char *p = text; *p; p++) {
+        if (isspace((unsigned char)*p) || *p == ',' || *p == '-' || *p == '_') {
+            continue;
+        }
+
+        int v = HexNibble(*p);
+        if (v < 0) {
+            return false;
+        }
+
+        if (high < 0) {
+            high = v;
+        } else {
+            if (count >= outMax) {
+                return false;
+            }
+            out[count++] = (BYTE)((high << 4) | v);
+            high = -1;
+        }
+    }
+
+    if (high >= 0) {
+        return false;
+    }
+
+    *outSize = count;
+    return true;
+}
+
+static void WriteHex(FILE *fp, const char *name, const BYTE *data, DWORD size)
+{
+    fprintf(fp, "%s=", name);
+    for (DWORD i = 0; i < size; i++) {
+        fprintf(fp, "%02X", data[i]);
+    }
+    fprintf(fp, "\n");
+}
+
+static void CopyString(char *dst, size_t dstSize, const char *src)
+{
+    if (!dst || dstSize == 0) {
+        return;
+    }
+
+    if (!src) {
+        src = "";
+    }
+
+    lstrcpynA(dst, src, (int)dstSize);
+}
+
+static void CopyRegSz(char *dst, size_t dstSize, const BYTE *data, DWORD dataSize)
+{
+    if (!dst || dstSize == 0) {
+        return;
+    }
+
+    dst[0] = '\0';
+
+    if (!data || dataSize == 0) {
+        return;
+    }
+
+    DWORD copySize = dataSize;
+    if (copySize >= dstSize) {
+        copySize = (DWORD)dstSize - 1;
+    }
+
+    memcpy(dst, data, copySize);
+    dst[copySize] = '\0';
+    dst[dstSize - 1] = '\0';
 }
 
 static LONG ReturnRegSz(
@@ -219,7 +383,7 @@ static LONG ReturnBinaryFileOrDefault(
         return ReturnRegBinary(defaultData, defaultSize, lpType, lpData, lpcbData);
     }
 
-    BYTE temp[512];
+    BYTE temp[MMX3_CONFIG_BINARY_MAX];
     memset(temp, 0, sizeof(temp));
 
     size_t n = fread(temp, 1, sizeof(temp), fp);
@@ -256,6 +420,274 @@ static LONG WriteBinaryFile(const char *path, const BYTE *data, DWORD size)
             (unsigned long)written);
 
     return written == size ? ERROR_SUCCESS : ERROR_WRITE_FAULT;
+}
+
+static void InitConfigDefaults()
+{
+    memset(&g_config, 0, sizeof(g_config));
+
+    CopyString(g_config.instProgram, sizeof(g_config.instProgram), "True");
+    CopyString(g_config.instResource, sizeof(g_config.instResource), "True");
+    CopyString(g_config.instMovie, sizeof(g_config.instMovie), "True");
+    CopyString(g_config.instBgm, sizeof(g_config.instBgm), "True");
+    CopyString(g_config.doubleView, sizeof(g_config.doubleView), "True");
+    CopyString(g_config.easyMode, sizeof(g_config.easyMode), "True");
+    CopyString(g_config.fullScreen, sizeof(g_config.fullScreen), "False");
+    CopyString(g_config.screenMode, sizeof(g_config.screenMode), "640,480,8");
+}
+
+static void LoadPortableConfig()
+{
+    if (g_config.loaded) {
+        return;
+    }
+
+    InitConfigDefaults();
+    g_config.loaded = true;
+
+    FILE *fp = fopen(g_configPath, "r");
+    if (!fp) {
+        LogLine("Portable config not found: %s", g_configPath);
+        return;
+    }
+
+    LogLine("Portable config load: %s", g_configPath);
+
+    char section[32] = "";
+    char line[2048];
+
+    while (fgets(line, sizeof(line), fp)) {
+        StripLineEnding(line);
+        char *s = Trim(line);
+
+        if (!s[0] || s[0] == '#' || s[0] == ';') {
+            continue;
+        }
+
+        if (s[0] == '[') {
+            char *end = strchr(s, ']');
+            if (end) {
+                *end = '\0';
+                CopyString(section, sizeof(section), Trim(s + 1));
+            }
+            continue;
+        }
+
+        char *eq = strchr(s, '=');
+        if (!eq) {
+            continue;
+        }
+
+        *eq = '\0';
+        char *key = Trim(s);
+        char *value = Trim(eq + 1);
+
+        if (lstrcmpiA(section, "Root") == 0) {
+            if (IsValue(key, "CD Drive")) {
+                CopyString(g_config.cdDrive, sizeof(g_config.cdDrive), value);
+            } else if (IsValue(key, "Inst Program")) {
+                CopyString(g_config.instProgram, sizeof(g_config.instProgram), value);
+            } else if (IsValue(key, "Inst Resource")) {
+                CopyString(g_config.instResource, sizeof(g_config.instResource), value);
+            } else if (IsValue(key, "Inst Movie")) {
+                CopyString(g_config.instMovie, sizeof(g_config.instMovie), value);
+            } else if (IsValue(key, "Inst BGM")) {
+                CopyString(g_config.instBgm, sizeof(g_config.instBgm), value);
+            } else if (IsValue(key, "DoubleView")) {
+                CopyString(g_config.doubleView, sizeof(g_config.doubleView), value);
+            } else if (IsValue(key, "Easy Mode")) {
+                CopyString(g_config.easyMode, sizeof(g_config.easyMode), value);
+            } else if (IsValue(key, "FullScreen")) {
+                CopyString(g_config.fullScreen, sizeof(g_config.fullScreen), value);
+            } else if (IsValue(key, "Screen Mode")) {
+                CopyString(g_config.screenMode, sizeof(g_config.screenMode), value);
+            }
+        } else if (lstrcmpiA(section, "KeyConfig") == 0) {
+            DWORD decodedSize = 0;
+
+            if (IsValue(key, "GamePad")) {
+                if (DecodeHex(value, g_config.gamePad, sizeof(g_config.gamePad), &decodedSize)) {
+                    g_config.gamePadSize = decodedSize;
+                    g_config.hasGamePad = true;
+                }
+            } else if (IsValue(key, "Keyboard")) {
+                if (DecodeHex(value, g_config.keyboard, sizeof(g_config.keyboard), &decodedSize)) {
+                    g_config.keyboardSize = decodedSize;
+                    g_config.hasKeyboard = true;
+                }
+            } else if (IsValue(key, "SideWinder")) {
+                if (DecodeHex(value, g_config.sideWinder, sizeof(g_config.sideWinder), &decodedSize)) {
+                    g_config.sideWinderSize = decodedSize;
+                    g_config.hasSideWinder = true;
+                }
+            }
+        }
+    }
+
+    fclose(fp);
+}
+
+
+static LONG SavePortableConfig()
+{
+    LoadPortableConfig();
+
+    FILE *fp = fopen(g_configPath, "w");
+    if (!fp) {
+        LogLine("Portable config write failed: %s", g_configPath);
+        return ERROR_ACCESS_DENIED;
+    }
+
+    fprintf(fp, "# Mega Man X3 / Rockman X3 portable config\n");
+    fprintf(fp, "# MMX3.sav is intentionally stored separately.\n\n");
+
+    fprintf(fp, "[Root]\n");
+    fprintf(fp, "CD Drive=%s\n", g_config.cdDrive);
+    fprintf(fp, "Inst Program=%s\n", g_config.instProgram);
+    fprintf(fp, "Inst Resource=%s\n", g_config.instResource);
+    fprintf(fp, "Inst Movie=%s\n", g_config.instMovie);
+    fprintf(fp, "Inst BGM=%s\n", g_config.instBgm);
+    fprintf(fp, "DoubleView=%s\n", g_config.doubleView);
+    fprintf(fp, "Easy Mode=%s\n", g_config.easyMode);
+    fprintf(fp, "FullScreen=%s\n", g_config.fullScreen);
+    fprintf(fp, "Screen Mode=%s\n", g_config.screenMode);
+
+    fprintf(fp, "\n[KeyConfig]\n");
+    WriteHex(fp, "GamePad", g_config.hasGamePad ? g_config.gamePad : kDefaultGamePad,
+             g_config.hasGamePad ? g_config.gamePadSize : sizeof(kDefaultGamePad));
+    WriteHex(fp, "Keyboard", g_config.hasKeyboard ? g_config.keyboard : kDefaultKeyboard,
+             g_config.hasKeyboard ? g_config.keyboardSize : sizeof(kDefaultKeyboard));
+    WriteHex(fp, "SideWinder", g_config.hasSideWinder ? g_config.sideWinder : kDefaultSideWinder,
+             g_config.hasSideWinder ? g_config.sideWinderSize : sizeof(kDefaultSideWinder));
+
+    fclose(fp);
+
+    LogLine("Portable config saved: %s", g_configPath);
+    return ERROR_SUCCESS;
+}
+
+static LONG ReturnConfigBinaryOrDefault(
+    const char *name,
+    const BYTE *configData,
+    DWORD configSize,
+    bool hasConfigData,
+    const BYTE *defaultData,
+    DWORD defaultSize,
+    LPDWORD lpType,
+    LPBYTE lpData,
+    LPDWORD lpcbData)
+{
+    LoadPortableConfig();
+
+    if (hasConfigData && configData && configSize > 0) {
+        LogLine("RegQuery KeyConfig %s -> MMX3.conf size=%lu",
+                name,
+                (unsigned long)configSize);
+        return ReturnRegBinary(configData, configSize, lpType, lpData, lpcbData);
+    }
+
+    LogLine("RegQuery KeyConfig %s -> default size=%lu",
+            name,
+            (unsigned long)defaultSize);
+    return ReturnRegBinary(defaultData, defaultSize, lpType, lpData, lpcbData);
+}
+
+
+static LONG StoreConfigBinary(
+    const char *name,
+    const BYTE *src,
+    DWORD srcSize,
+    BYTE *dst,
+    DWORD *dstSize,
+    bool *hasDst)
+{
+    if (!src || srcSize == 0 || srcSize > MMX3_CONFIG_BINARY_MAX || !dst || !dstSize || !hasDst) {
+        return ERROR_INVALID_PARAMETER;
+    }
+
+    LoadPortableConfig();
+
+    memcpy(dst, src, srcSize);
+    *dstSize = srcSize;
+    *hasDst = true;
+
+    LogLine("RegSet KeyConfig %s -> MMX3.conf size=%lu",
+            name,
+            (unsigned long)srcSize);
+
+    return SavePortableConfig();
+}
+
+static const char *RootConfigValue(LPCSTR lpValueName)
+{
+    LoadPortableConfig();
+
+    if (IsValue(lpValueName, "Inst Program")) {
+        return g_config.instProgram;
+    }
+    if (IsValue(lpValueName, "Inst Resource")) {
+        return g_config.instResource;
+    }
+    if (IsValue(lpValueName, "Inst Movie")) {
+        return g_config.instMovie;
+    }
+    if (IsValue(lpValueName, "Inst BGM")) {
+        return g_config.instBgm;
+    }
+    if (IsValue(lpValueName, "DoubleView")) {
+        return g_config.doubleView;
+    }
+    if (IsValue(lpValueName, "Easy Mode")) {
+        return g_config.easyMode;
+    }
+    if (IsValue(lpValueName, "FullScreen")) {
+        return g_config.fullScreen;
+    }
+    if (IsValue(lpValueName, "Screen Mode")) {
+        return g_config.screenMode;
+    }
+
+    return NULL;
+}
+
+static bool StoreRootConfigValue(LPCSTR lpValueName, DWORD dwType, const BYTE *lpData, DWORD cbData)
+{
+    if (!lpValueName || (dwType != REG_SZ && dwType != REG_EXPAND_SZ)) {
+        return false;
+    }
+
+    LoadPortableConfig();
+
+    char text[128];
+    CopyRegSz(text, sizeof(text), lpData, cbData);
+
+    if (IsValue(lpValueName, "CD Drive")) {
+        CopyString(g_config.cdDrive, sizeof(g_config.cdDrive), text);
+    } else if (IsValue(lpValueName, "Inst Program")) {
+        CopyString(g_config.instProgram, sizeof(g_config.instProgram), text);
+    } else if (IsValue(lpValueName, "Inst Resource")) {
+        CopyString(g_config.instResource, sizeof(g_config.instResource), text);
+    } else if (IsValue(lpValueName, "Inst Movie")) {
+        CopyString(g_config.instMovie, sizeof(g_config.instMovie), text);
+    } else if (IsValue(lpValueName, "Inst BGM")) {
+        CopyString(g_config.instBgm, sizeof(g_config.instBgm), text);
+    } else if (IsValue(lpValueName, "DoubleView")) {
+        CopyString(g_config.doubleView, sizeof(g_config.doubleView), text);
+    } else if (IsValue(lpValueName, "Easy Mode")) {
+        CopyString(g_config.easyMode, sizeof(g_config.easyMode), text);
+    } else if (IsValue(lpValueName, "FullScreen")) {
+        CopyString(g_config.fullScreen, sizeof(g_config.fullScreen), text);
+    } else if (IsValue(lpValueName, "Screen Mode")) {
+        CopyString(g_config.screenMode, sizeof(g_config.screenMode), text);
+    } else {
+        return false;
+    }
+
+    LogLine("RegSet Root stored value=%s data=\"%s\" -> MMX3.conf",
+            lpValueName,
+            text);
+
+    return SavePortableConfig() == ERROR_SUCCESS;
 }
 
 // Registry hooks
@@ -357,24 +789,10 @@ static LONG WINAPI MyRegQueryValueExA(
             return ReturnRegSz(g_gameDir, lpType, lpData, lpcbData);
         }
 
-        if (IsValue(lpValueName, "Inst Program") ||
-            IsValue(lpValueName, "Inst Resource") ||
-            IsValue(lpValueName, "Inst Movie") ||
-            IsValue(lpValueName, "Inst BGM") ||
-            IsValue(lpValueName, "DoubleView") ||
-            IsValue(lpValueName, "Easy Mode")) {
-            LogLine("RegQuery Root %s -> True", lpValueName);
-            return ReturnRegSz("True", lpType, lpData, lpcbData);
-        }
-
-        if (IsValue(lpValueName, "FullScreen")) {
-            LogLine("RegQuery Root FullScreen -> False");
-            return ReturnRegSz("False", lpType, lpData, lpcbData);
-        }
-
-        if (IsValue(lpValueName, "Screen Mode")) {
-            LogLine("RegQuery Root Screen Mode -> 640,480,8");
-            return ReturnRegSz("640,480,8", lpType, lpData, lpcbData);
+        const char *value = RootConfigValue(lpValueName);
+        if (value) {
+            LogLine("RegQuery Root %s -> %s", lpValueName, value);
+            return ReturnRegSz(value, lpType, lpData, lpcbData);
         }
 
         LogLine("RegQuery Root unknown value: %s", lpValueName ? lpValueName : "(null)");
@@ -397,10 +815,14 @@ static LONG WINAPI MyRegQueryValueExA(
     }
 
     if (hKey == FAKE_HKEY_MMX3_KEYCFG) {
+        LoadPortableConfig();
+
         if (IsValue(lpValueName, "GamePad")) {
-            LogLine("RegQuery KeyConfig GamePad");
-            return ReturnBinaryFileOrDefault(
-                g_keyGamePadPath,
+            return ReturnConfigBinaryOrDefault(
+                "GamePad",
+                g_config.gamePad,
+                g_config.gamePadSize,
+                g_config.hasGamePad,
                 kDefaultGamePad,
                 sizeof(kDefaultGamePad),
                 lpType,
@@ -409,9 +831,11 @@ static LONG WINAPI MyRegQueryValueExA(
         }
 
         if (IsValue(lpValueName, "Keyboard")) {
-            LogLine("RegQuery KeyConfig Keyboard");
-            return ReturnBinaryFileOrDefault(
-                g_keyKeyboardPath,
+            return ReturnConfigBinaryOrDefault(
+                "Keyboard",
+                g_config.keyboard,
+                g_config.keyboardSize,
+                g_config.hasKeyboard,
                 kDefaultKeyboard,
                 sizeof(kDefaultKeyboard),
                 lpType,
@@ -420,9 +844,11 @@ static LONG WINAPI MyRegQueryValueExA(
         }
 
         if (IsValue(lpValueName, "SideWinder")) {
-            LogLine("RegQuery KeyConfig SideWinder");
-            return ReturnBinaryFileOrDefault(
-                g_keySideWinderPath,
+            return ReturnConfigBinaryOrDefault(
+                "SideWinder",
+                g_config.sideWinder,
+                g_config.sideWinderSize,
+                g_config.hasSideWinder,
                 kDefaultSideWinder,
                 sizeof(kDefaultSideWinder),
                 lpType,
@@ -458,7 +884,7 @@ static LONG WINAPI MyRegSetValueExA(
             dwType == REG_BINARY &&
             lpData &&
             cbData >= 0x80) {
-            LogLine("RegSet Card Password size=%lu", (unsigned long)cbData);
+            LogLine("RegSet Card Password -> MMX3.sav size=%lu", (unsigned long)cbData);
             return WriteBinaryFile(g_passwordPath, lpData, 0x80);
         }
         LogLine("RegSet Card ignored value=%s type=%lu size=%lu",
@@ -473,24 +899,39 @@ static LONG WINAPI MyRegSetValueExA(
             dwType == REG_BINARY &&
             lpData &&
             cbData > 0) {
-            LogLine("RegSet KeyConfig GamePad size=%lu", (unsigned long)cbData);
-            return WriteBinaryFile(g_keyGamePadPath, lpData, cbData);
+            return StoreConfigBinary(
+                "GamePad",
+                lpData,
+                cbData,
+                g_config.gamePad,
+                &g_config.gamePadSize,
+                &g_config.hasGamePad);
         }
 
         if (IsValue(lpValueName, "Keyboard") &&
             dwType == REG_BINARY &&
             lpData &&
             cbData > 0) {
-            LogLine("RegSet KeyConfig Keyboard size=%lu", (unsigned long)cbData);
-            return WriteBinaryFile(g_keyKeyboardPath, lpData, cbData);
+            return StoreConfigBinary(
+                "Keyboard",
+                lpData,
+                cbData,
+                g_config.keyboard,
+                &g_config.keyboardSize,
+                &g_config.hasKeyboard);
         }
 
         if (IsValue(lpValueName, "SideWinder") &&
             dwType == REG_BINARY &&
             lpData &&
             cbData > 0) {
-            LogLine("RegSet KeyConfig SideWinder size=%lu", (unsigned long)cbData);
-            return WriteBinaryFile(g_keySideWinderPath, lpData, cbData);
+            return StoreConfigBinary(
+                "SideWinder",
+                lpData,
+                cbData,
+                g_config.sideWinder,
+                &g_config.sideWinderSize,
+                &g_config.hasSideWinder);
         }
 
         LogLine("RegSet KeyConfig ignored value=%s type=%lu size=%lu",
@@ -501,6 +942,10 @@ static LONG WINAPI MyRegSetValueExA(
     }
 
     if (hKey == FAKE_HKEY_MMX3) {
+        if (StoreRootConfigValue(lpValueName, dwType, lpData, cbData)) {
+            return ERROR_SUCCESS;
+        }
+
         LogLine("RegSet Root ignored value=%s type=%lu size=%lu",
                 lpValueName ? lpValueName : "(null)",
                 (unsigned long)dwType,

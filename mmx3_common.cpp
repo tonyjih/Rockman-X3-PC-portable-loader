@@ -8,9 +8,7 @@ char g_gameDir[MAX_PATH];
 char g_gameDriveRoot[4];
 
 char g_passwordPath[MAX_PATH];
-char g_keyGamePadPath[MAX_PATH];
-char g_keyKeyboardPath[MAX_PATH];
-char g_keySideWinderPath[MAX_PATH];
+char g_configPath[MAX_PATH];
 char g_logPath[MAX_PATH];
 
 void LogLine(const char *fmt, ...)
@@ -72,14 +70,9 @@ void BuildPaths()
     lstrcpynA(g_passwordPath, g_gameDir, MAX_PATH);
     lstrcatA(g_passwordPath, "MMX3.sav");
 
-    lstrcpynA(g_keyGamePadPath, g_gameDir, MAX_PATH);
-    lstrcatA(g_keyGamePadPath, "KeyConfig_GamePad.bin");
+    lstrcpynA(g_configPath, g_gameDir, MAX_PATH);
+    lstrcatA(g_configPath, "MMX3.conf");
 
-    lstrcpynA(g_keyKeyboardPath, g_gameDir, MAX_PATH);
-    lstrcatA(g_keyKeyboardPath, "KeyConfig_Keyboard.bin");
-
-    lstrcpynA(g_keySideWinderPath, g_gameDir, MAX_PATH);
-    lstrcatA(g_keySideWinderPath, "KeyConfig_SideWinder.bin");
 
     lstrcpynA(g_logPath, g_gameDir, MAX_PATH);
     lstrcatA(g_logPath, "mmx3_portable.log");
@@ -94,9 +87,7 @@ void BuildPaths()
     LogLine("GameDir=%s", g_gameDir);
     LogLine("GameDriveRoot=%s", g_gameDriveRoot);
     LogLine("PasswordPath=%s", g_passwordPath);
-    LogLine("KeyGamePadPath=%s", g_keyGamePadPath);
-    LogLine("KeyKeyboardPath=%s", g_keyKeyboardPath);
-    LogLine("KeySideWinderPath=%s", g_keySideWinderPath);
+    LogLine("ConfigPath=%s", g_configPath);
 #endif
 }
 
