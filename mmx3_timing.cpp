@@ -269,126 +269,6 @@ static void Mmx3RealSleepEx(DWORD ms, BOOL alertable)
 // Hooked APIs
 // ============================================================
 
-static VOID WINAPI HookSleep(DWORD dwMilliseconds)
-{
-#if MMX3_ENABLE_TIMING_LOG
-    void *caller = _ReturnAddress();
-    LONG n = InterlockedIncrement(&g_sleepLogCount);
-
-    if (n <= 256) {
-        LogLine(
-            "Timing Sleep #%ld caller=%p ms=%lu",
-            (long)n,
-            caller,
-            (unsigned long)dwMilliseconds);
-    }
-#endif
-
-    if (g_realSleep) {
-        g_realSleep(dwMilliseconds);
-    }
-}
-
-static DWORD WINAPI HookSleepEx(DWORD dwMilliseconds, BOOL bAlertable)
-{
-#if MMX3_ENABLE_TIMING_LOG
-    void *caller = _ReturnAddress();
-    LONG n = InterlockedIncrement(&g_sleepExLogCount);
-
-    if (n <= 256) {
-        LogLine(
-            "Timing SleepEx #%ld caller=%p ms=%lu alertable=%d",
-            (long)n,
-            caller,
-            (unsigned long)dwMilliseconds,
-            (int)bAlertable);
-    }
-#endif
-
-    if (g_realSleepEx) {
-        return g_realSleepEx(dwMilliseconds, bAlertable);
-    }
-
-    return 0;
-}
-
-static DWORD WINAPI HookGetTickCount(void)
-{
-    DWORD value = 0;
-
-    if (g_realGetTickCount) {
-        value = g_realGetTickCount();
-    }
-
-#if MMX3_ENABLE_TIMING_LOG
-    void *caller = _ReturnAddress();
-    LONG n = InterlockedIncrement(&g_getTickLogCount);
-
-    if (n <= 512) {
-        DWORD globalDelta = 0;
-
-        if (g_lastGetTickCountValue != 0) {
-            globalDelta = value - g_lastGetTickCountValue;
-        }
-
-        g_lastGetTickCountValue = value;
-
-        LogLine(
-            "Timing GetTickCount #%ld caller=%p value=%lu globalDelta=%lu",
-            (long)n,
-            caller,
-            (unsigned long)value,
-            (unsigned long)globalDelta);
-    }
-#endif
-
-    return value;
-}
-
-static DWORD WINAPI HookTimeGetTime(void)
-{
-    DWORD value = 0;
-
-    if (g_realTimeGetTime) {
-        value = g_realTimeGetTime();
-    }
-
-#if (0)
-    void *caller = _ReturnAddress();
-    LONG n = InterlockedIncrement(&g_timeGetTimeLogCount);
-
-    if (n <= 1024) {
-        DWORD globalDelta = 0;
-
-        if (g_lastTimeGetTimeValue != 0) {
-            globalDelta = value - g_lastTimeGetTimeValue;
-        }
-
-        g_lastTimeGetTimeValue = value;
-
-        DWORD callerCount = 0;
-        DWORD callerDelta = UpdateCallerDelta(
-            g_timeGetTimeCallers,
-            MMX3_TIMING_CALLER_SLOTS,
-            caller,
-            value,
-            &callerCount);
-
-        LogLine(
-            "Timing timeGetTime #%ld caller=%p callerName=%s callerCount=%lu value=%lu globalDelta=%lu callerDelta=%lu",
-            (long)n,
-            caller,
-            GetTimingCallerName(caller),
-            (unsigned long)callerCount,
-            (unsigned long)value,
-            (unsigned long)globalDelta,
-            (unsigned long)callerDelta);
-    }
-#endif
-
-    return value;
-}
-
 static BOOL WINAPI HookQueryPerformanceFrequency(LARGE_INTEGER *lpFrequency)
 {
     BOOL ok = FALSE;
@@ -753,23 +633,23 @@ static void InstallMainTimer16msExperiment(HMODULE exe)
 #endif
 }
 
-static void InstallMainTimerFractional60Experiment(HMODULE exe)
+static void InstallMainTimerFractional60Patch(HMODULE exe)
 {
     (void)exe;
 
     if (!g_patchConfig.fractional60FpsTimer) {
-        LogLine("MainTimerFractional60Experiment skipped: disabled by MMX3.conf");
+        LogLine("MainTimerFractional60Patch skipped: disabled by MMX3.conf");
         return;
     }
 
 #if MMX3_ENABLE_FRACTIONAL_60_EXPERIMENT
     BYTE *p = MMX3_ADDR_MAIN_TIMER_THREAD;
 
-    LogBytes("MainTimerFractional60Experiment check: 004DEB10 bytes=", p, 8);
+    LogBytes("MainTimerFractional60Patch check: 004DEB10 bytes=", p, 8);
 
     if (memcmp(p, kMainTimerThreadPrologue, sizeof(kMainTimerThreadPrologue)) != 0) {
         LogLine(
-            "MainTimerFractional60Experiment skipped: unexpected prologue at 004DEB10: %02X %02X %02X %02X %02X %02X %02X %02X",
+            "MainTimerFractional60Patch skipped: unexpected prologue at 004DEB10: %02X %02X %02X %02X %02X %02X %02X %02X",
             p[0],
             p[1],
             p[2],
@@ -798,28 +678,28 @@ static void InstallMainTimerFractional60Experiment(HMODULE exe)
 
     if (PatchRelativeJump(p, (void *)HookMainTimerThread, patchSize)) {
         LogLine(
-            "MainTimerFractional60Experiment applied: 004DEB10 -> HookMainTimerThread, patchSize=%lu, pattern=16/17/17",
+            "MainTimerFractional60Patch applied: 004DEB10 -> HookMainTimerThread, patchSize=%lu, pattern=16/17/17",
             (unsigned long)patchSize);
     } else {
-        LogLine("MainTimerFractional60Experiment failed");
+        LogLine("MainTimerFractional60Patch failed");
     }
 #else
     (void)exe;
 #endif
 }
 
-static void InstallTimerExperiments(HMODULE exe)
+static void InstallTimerPatches(HMODULE exe)
 {
 #if MMX3_TIMER_MODE == MMX3_TIMER_MODE_ORIGINAL
-    LogLine("InstallTimerExperiments: mode=ORIGINAL");
+    LogLine("InstallTimerPatches: mode=ORIGINAL");
 #elif MMX3_TIMER_MODE == MMX3_TIMER_MODE_PATCH_16MS
-    LogLine("InstallTimerExperiments: mode=PATCH_16MS");
+    LogLine("InstallTimerPatches: mode=PATCH_16MS");
     InstallMainTimer16msExperiment(exe);
 #elif MMX3_TIMER_MODE == MMX3_TIMER_MODE_FRACTIONAL_60
-    LogLine("InstallTimerExperiments: mode=FRACTIONAL_60");
-    InstallMainTimerFractional60Experiment(exe);
+    LogLine("InstallTimerPatches: mode=FRACTIONAL_60");
+    InstallMainTimerFractional60Patch(exe);
 #else
-    LogLine("InstallTimerExperiments: unknown MMX3_TIMER_MODE=%d", MMX3_TIMER_MODE);
+    LogLine("InstallTimerPatches: unknown MMX3_TIMER_MODE=%d", MMX3_TIMER_MODE);
 #endif
 }
 
@@ -841,59 +721,5 @@ void InstallTimingHooks(HMODULE exe)
         return;
     }
 
-    if (!PatchIAT(
-            exe,
-            "KERNEL32.DLL",
-            "Sleep",
-            (void *)HookSleep,
-            (void **)&g_realSleep)) {
-        LogLine("Timing hook skipped: KERNEL32.DLL!Sleep");
-    }
-
-    if (!PatchIAT(
-            exe,
-            "KERNEL32.DLL",
-            "SleepEx",
-            (void *)HookSleepEx,
-            (void **)&g_realSleepEx)) {
-        LogLine("Timing hook skipped: KERNEL32.DLL!SleepEx");
-    }
-
-    if (!PatchIAT(
-            exe,
-            "KERNEL32.DLL",
-            "GetTickCount",
-            (void *)HookGetTickCount,
-            (void **)&g_realGetTickCount)) {
-        LogLine("Timing hook skipped: KERNEL32.DLL!GetTickCount");
-    }
-
-    if (!PatchIAT(
-            exe,
-            "KERNEL32.DLL",
-            "QueryPerformanceCounter",
-            (void *)HookQueryPerformanceCounter,
-            (void **)&g_realQueryPerformanceCounter)) {
-        LogLine("Timing hook skipped: KERNEL32.DLL!QueryPerformanceCounter");
-    }
-
-    if (!PatchIAT(
-            exe,
-            "KERNEL32.DLL",
-            "QueryPerformanceFrequency",
-            (void *)HookQueryPerformanceFrequency,
-            (void **)&g_realQueryPerformanceFrequency)) {
-        LogLine("Timing hook skipped: KERNEL32.DLL!QueryPerformanceFrequency");
-    }
-
-    if (!PatchIAT(
-            exe,
-            "WINMM.DLL",
-            "timeGetTime",
-            (void *)HookTimeGetTime,
-            (void **)&g_realTimeGetTime)) {
-        LogLine("Timing hook skipped: WINMM.DLL!timeGetTime");
-    }
-
-    InstallTimerExperiments(exe);
+    InstallTimerPatches(exe);
 }

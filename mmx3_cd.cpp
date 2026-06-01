@@ -3,17 +3,7 @@
 #include <mmsystem.h>
 #include <stdio.h>
 
-#define MMX3_ENABLE_MCI_DEVICE_OPEN_PATCH      1
-#define MMX3_ENABLE_POST_THREAD_MESSAGE_LOG    1
 #define MMX3_ENABLE_MCI_STATUS_HOOK            1
-
-typedef UINT (WINAPI *GetDriveTypeA_t)(LPCSTR lpRootPathName);
-
-typedef BOOL (WINAPI *PostThreadMessageA_t)(
-    DWORD idThread,
-    UINT Msg,
-    WPARAM wParam,
-    LPARAM lParam);
 
 typedef MCIERROR (WINAPI *mciSendCommandA_t)(
     MCIDEVICEID mciId,
@@ -21,85 +11,7 @@ typedef MCIERROR (WINAPI *mciSendCommandA_t)(
     DWORD_PTR dwParam1,
     DWORD_PTR dwParam2);
 
-static GetDriveTypeA_t        g_realGetDriveTypeA      = NULL;
-static PostThreadMessageA_t   g_realPostThreadMessageA = NULL;
 static mciSendCommandA_t      g_realMciSendCommandA    = NULL;
-
-static void PatchMciDeviceOpenCheck()
-{
-#if MMX3_ENABLE_MCI_DEVICE_OPEN_PATCH
-    HMODULE exe = GetModuleHandleA(NULL);
-    if (!exe) {
-        return;
-    }
-
-    // Ghidra VA : 0x00403C00
-    // ImageBase : 0x00400000
-    // RVA       : 0x00003C00
-    // Original  : return *(int *)(this + 0x14) != 0;
-    // Patch     : mov eax, 1; ret
-    BYTE *target = (BYTE *)exe + 0x00003C00;
-
-    static const BYTE patch[] = {
-        0xB8, 0x01, 0x00, 0x00, 0x00,
-        0xC3
-    };
-
-    LogLine("Applying PatchMciDeviceOpenCheck at RVA 0x00003C00");
-    PatchMemory(target, patch, sizeof(patch));
-#else
-    LogLine("PatchMciDeviceOpenCheck disabled");
-#endif
-}
-
-static UINT WINAPI MyGetDriveTypeA(LPCSTR lpRootPathName)
-{
-    if (lpRootPathName && g_gameDriveRoot[0]) {
-        if (lstrcmpiA(lpRootPathName, g_gameDriveRoot) == 0) {
-            LogLine("GetDriveTypeA(%s) -> DRIVE_CDROM exact", lpRootPathName);
-            return DRIVE_CDROM;
-        }
-
-        if (lpRootPathName[0] &&
-            lpRootPathName[1] == ':' &&
-            (lpRootPathName[0] == g_gameDriveRoot[0] ||
-             lpRootPathName[0] == (char)(g_gameDriveRoot[0] + 32) ||
-             lpRootPathName[0] == (char)(g_gameDriveRoot[0] - 32))) {
-            LogLine("GetDriveTypeA(%s) -> DRIVE_CDROM loose", lpRootPathName);
-            return DRIVE_CDROM;
-        }
-    }
-
-    UINT result = g_realGetDriveTypeA
-        ? g_realGetDriveTypeA(lpRootPathName)
-        : DRIVE_UNKNOWN;
-
-    if (lpRootPathName) {
-        LogLine("GetDriveTypeA(%s) -> %u real", lpRootPathName, result);
-    }
-
-    return result;
-}
-
-static BOOL WINAPI MyPostThreadMessageA(
-    DWORD idThread,
-    UINT Msg,
-    WPARAM wParam,
-    LPARAM lParam)
-{
-#if MMX3_ENABLE_POST_THREAD_MESSAGE_LOG
-    LogLine(
-        "PostThreadMessageA thread=%lu msg=0x%X wParam=0x%p lParam=0x%p",
-        (unsigned long)idThread,
-        Msg,
-        (void *)wParam,
-        (void *)lParam);
-#endif
-
-    return g_realPostThreadMessageA
-        ? g_realPostThreadMessageA(idThread, Msg, wParam, lParam)
-        : FALSE;
-}
 
 static bool IsFakeMciDevice(MCIDEVICEID id)
 {
@@ -299,22 +211,6 @@ static MCIERROR WINAPI MyMciSendCommandA(
 void InstallCdHooks(HMODULE exe)
 {
     LogLine("InstallCdHooks");
-
-    PatchMciDeviceOpenCheck();
-
-    PatchIAT(
-        exe,
-        "KERNEL32.DLL",
-        "GetDriveTypeA",
-        (void *)MyGetDriveTypeA,
-        (void **)&g_realGetDriveTypeA);
-
-    PatchIAT(
-        exe,
-        "USER32.DLL",
-        "PostThreadMessageA",
-        (void *)MyPostThreadMessageA,
-        (void **)&g_realPostThreadMessageA);
 
     PatchIAT(
         exe,
