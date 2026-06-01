@@ -2,54 +2,36 @@
 
 Source package for a `ddraw.dll` proxy-based portable loader for the 1997 PC versions of **Mega Man X3** and **Rockman X3**.
 
-This project makes the game portable by virtualizing the original registry/CD checks, and includes a gameplay bugfix for a long-standing PC-version boss projectile crash.
+This project makes the game portable by virtualizing the original registry/CD checks, stores save/config data next to the game executable, includes a gameplay bugfix for a long-standing PC-version boss projectile crash, and contains an optional main-timer patch for smoother 60 FPS pacing.
 
 ## Files
 
 | File | Description |
 | --- | --- |
 | `mmx3_common.h/.cpp` | Shared globals, paths, logging, `PatchIAT`, and `PatchMemory`. |
-| `ddraw_proxy.cpp` | DLL entry point, crash logger, and `ddraw.dll` proxy exports. |
-| `mmx3_registry.cpp` | Registry virtualization for `MEGAMANX3` and `ROCKMANX3`. |
+| `ddraw_proxy.cpp` | DLL entry point, crash logger, loader initialization, and `ddraw.dll` proxy exports. |
+| `mmx3_registry.cpp` | Registry virtualization for `MEGAMANX3` and `ROCKMANX3`, backed by portable local files. |
 | `mmx3_cd.cpp` | CD-ROM drive spoofing and fake MCI CDAudio device. |
 | `mmx3_bugfix.cpp` | Gameplay bugfixes and optional debug instrumentation. |
-| `ddraw_proxy.def` | Export definition file. |
-| `build.bat` | Default build; calls `build_debug.bat`. |
-| `build_debug.bat` | Debug build, logging enabled. Can be double-clicked. |
-| `build_release.bat` | Release-style build, logging disabled. Can be double-clicked. |
-| `_build_common.bat` | Shared build helper that locates MSVC automatically. |
+| `mmx3_timing.cpp` | Timing API logging hooks and optional main-timer experiments, including the fractional 60 FPS timer hook. |
 
 ## Build
 
-You can usually build by double-clicking one of these batch files:
+Build as a 32-bit Windows DLL named:
 
-```bat
-build.bat
-build_debug.bat
-build_release.bat
+```text
+ddraw.dll
 ```
-
-The build script will:
-
-1. Check whether `cl.exe` is already available.
-2. If not, locate Visual Studio / Build Tools with `vswhere.exe`.
-3. Initialize an x86 MSVC environment with `VsDevCmd.bat -arch=x86`.
-4. Build `ddraw.dll`.
 
 Required toolchain:
 
 ```text
 Visual Studio or Build Tools for Visual Studio
 Desktop development with C++
+x86 target
 ```
 
-Expected output:
-
-```text
-ddraw.dll
-```
-
-Place `ddraw.dll` next to `MMX3.exe` or `RMX3.exe`.
+Place the resulting `ddraw.dll` next to `MMX3.exe` or `RMX3.exe`.
 
 ## Runtime outputs
 
@@ -79,6 +61,16 @@ Card
 KeyConfig
 ```
 
+Root registry values currently persisted into `MMX3.conf` include:
+
+```text
+CD Drive
+Easy Mode
+Screen Mode
+FullScreen
+DoubleView
+```
+
 ## Portable behavior
 
 The loader redirects the original registry-based save/config behavior to local files next to the game executable:
@@ -88,7 +80,17 @@ MMX3.sav
 MMX3.conf
 ```
 
-`MMX3.sav` stores the password/save-card data only. `MMX3.conf` stores the remaining portable configuration, including root registry options such as `Easy Mode`, `Screen Mode`, `FullScreen`, `DoubleView`, and the three `KeyConfig` binary blobs.
+`MMX3.sav` stores the password/save-card data only.
+
+`MMX3.conf` stores the remaining portable configuration, including root registry options such as `CD Drive`, `Easy Mode`, `Screen Mode`, `FullScreen`, `DoubleView`, and the three `KeyConfig` binary blobs:
+
+```text
+GamePad
+Keyboard
+SideWinder
+```
+
+Older standalone key-config files are intentionally not used. The current portable layout keeps all non-save configuration in `MMX3.conf`.
 
 This allows the game to run without requiring the original installer registry state.
 
@@ -148,12 +150,71 @@ It is enabled only when logging is enabled:
 #define MMX3_ENABLE_PROJECTILE_STATE_LOG MMX3_ENABLE_LOG
 ```
 
-So:
+## Main timer / 60 FPS behavior
+
+`mmx3_timing.cpp` contains timing API hooks for investigation and an optional main-timer experiment.
+
+The timer mode is selected in `mmx3_timing.cpp`:
+
+```cpp
+#define MMX3_TIMER_MODE_ORIGINAL       0
+#define MMX3_TIMER_MODE_PATCH_16MS     1
+#define MMX3_TIMER_MODE_FRACTIONAL_60  2
+
+#define MMX3_TIMER_MODE MMX3_TIMER_MODE_FRACTIONAL_60
+```
+
+### Mode 0: original
+
+Leaves the original game timing code unchanged.
+
+### Mode 1: 16 ms immediate patch
+
+Patches the original main timer setup from `17 ms` to `16 ms`:
 
 ```text
-build_debug.bat   -> logger enabled
-build_release.bat -> logger disabled
+00402354: push 11h -> push 10h
 ```
+
+This is simple, but pure 16 ms pacing is not exactly 60 FPS.
+
+### Mode 2: fractional 60 FPS thread hook
+
+Replaces the original main timer thread entry at:
+
+```text
+004DEB10
+```
+
+with a hook that runs the timer callback using a fractional 60 FPS cadence:
+
+```text
+16 / 17 / 17 ms repeating pattern
+```
+
+This approximates 1000 ms / 60 frames while keeping the original callback flow alive. Debug builds periodically log stats such as active FPS and drift.
+
+## Timing logging
+
+When logging is enabled, `mmx3_timing.cpp` can log calls to:
+
+```text
+Sleep
+GetTickCount
+timeGetTime
+QueryPerformanceCounter
+QueryPerformanceFrequency
+```
+
+Known main-timer `timeGetTime` caller labels include:
+
+```text
+004DEB37  MainTimer.base
+004DEB4A  MainTimer.wait
+004DE1BA  Timer/controller-side caller
+```
+
+These labels are for debug investigation only and are not required for release-style builds.
 
 ## Logging
 
@@ -165,19 +226,7 @@ Default:
 #define MMX3_ENABLE_LOG 1
 ```
 
-`build_debug.bat` passes:
-
-```bat
-/DMMX3_ENABLE_LOG=1
-```
-
-`build_release.bat` passes:
-
-```bat
-/DMMX3_ENABLE_LOG=0
-```
-
-When logging is disabled, `mmx3_portable.log` is not created.
+When logging is disabled, `mmx3_portable.log` is not created, and optional debug instrumentation is compiled out or kept quiet depending on the surrounding feature macro.
 
 ## Notes
 
