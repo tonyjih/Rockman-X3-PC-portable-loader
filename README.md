@@ -103,6 +103,7 @@ This allows the game to run without requiring the original installer registry st
 BossProjectileFix=True
 Fractional60FpsTimer=True
 NormalizeScreenMode=True
+ZeroValuableItemPickupFix=True
 ```
 
 The defaults keep all current compatibility fixes enabled. Set a value to `False` to disable that patch for testing or to reproduce original behavior.
@@ -158,6 +159,14 @@ jmp  00476E65
 The important detail is that the movement helper must receive the parent projectile object (`[ebp+8]`), not the child data block at `parent + 0x40`.
 
 This restores the projectile movement/disappear behavior and prevents the boss AI from getting stuck.
+
+### Zero valuable item auto-pickup fix
+
+The PC version has a valuable item pickup bug where Heart Tanks, Sub Tanks, and similar stage items can be collected automatically while Zero is the current player, even without normal player/item collision.
+
+The pickup gate at `004D6AB2` checks `CurrentPlayer` from `[PTR_DAT_004F1620 + 0xB1]`. For X it routes through the normal collision path, which can reach the standard object hitbox collision test `FUN_00427D2E(item, player)`. For Zero, the original PC code directly returns a non-zero player token without checking collision, and the item update handler treats any non-zero result as pickup success.
+
+The fix patches the `test ecx, ecx` at `004D6ACE` into `xor ecx, ecx`, forcing Zero through the same normal collision path used by X.
 
 ### Debug projectile logger
 

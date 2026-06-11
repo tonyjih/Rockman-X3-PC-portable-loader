@@ -97,6 +97,7 @@ struct Mmx3PortableConfig
     char patchBossProjectileFix[16];
     char patchFractional60FpsTimer[16];
     char patchNormalizeScreenMode[16];
+    char patchZeroValuableItemPickupFix[16];
 
     BYTE gamePad[MMX3_CONFIG_BINARY_MAX];
     DWORD gamePadSize;
@@ -158,6 +159,9 @@ static void SyncPatchConfigFromPortableStrings()
     g_patchConfig.normalizeScreenMode = ConfigTextToBool(
         g_config.patchNormalizeScreenMode,
         g_patchConfig.normalizeScreenMode);
+    g_patchConfig.zeroValuableItemPickupFix = ConfigTextToBool(
+        g_config.patchZeroValuableItemPickupFix,
+        g_patchConfig.zeroValuableItemPickupFix);
 }
 
 static void NormalizeScreenModeValue(char *value, size_t valueSize)
@@ -516,6 +520,7 @@ static void InitConfigDefaults()
     CopyString(g_config.patchBossProjectileFix, sizeof(g_config.patchBossProjectileFix), MMX3BoolText(g_patchConfig.bossProjectileFix));
     CopyString(g_config.patchFractional60FpsTimer, sizeof(g_config.patchFractional60FpsTimer), MMX3BoolText(g_patchConfig.fractional60FpsTimer));
     CopyString(g_config.patchNormalizeScreenMode, sizeof(g_config.patchNormalizeScreenMode), MMX3BoolText(g_patchConfig.normalizeScreenMode));
+    CopyString(g_config.patchZeroValuableItemPickupFix, sizeof(g_config.patchZeroValuableItemPickupFix), MMX3BoolText(g_patchConfig.zeroValuableItemPickupFix));
 }
 
 static void LoadPortableConfig()
@@ -591,6 +596,8 @@ static void LoadPortableConfig()
                 CopyString(g_config.patchFractional60FpsTimer, sizeof(g_config.patchFractional60FpsTimer), value);
             } else if (IsValue(key, "NormalizeScreenMode")) {
                 CopyString(g_config.patchNormalizeScreenMode, sizeof(g_config.patchNormalizeScreenMode), value);
+            } else if (IsValue(key, "ZeroValuableItemPickupFix")) {
+                CopyString(g_config.patchZeroValuableItemPickupFix, sizeof(g_config.patchZeroValuableItemPickupFix), value);
             }
         } else if (lstrcmpiA(section, "KeyConfig") == 0) {
             DWORD decodedSize = 0;
@@ -647,12 +654,14 @@ static LONG SavePortableConfig()
     CopyString(g_config.patchBossProjectileFix, sizeof(g_config.patchBossProjectileFix), MMX3BoolText(g_patchConfig.bossProjectileFix));
     CopyString(g_config.patchFractional60FpsTimer, sizeof(g_config.patchFractional60FpsTimer), MMX3BoolText(g_patchConfig.fractional60FpsTimer));
     CopyString(g_config.patchNormalizeScreenMode, sizeof(g_config.patchNormalizeScreenMode), MMX3BoolText(g_patchConfig.normalizeScreenMode));
+    CopyString(g_config.patchZeroValuableItemPickupFix, sizeof(g_config.patchZeroValuableItemPickupFix), MMX3BoolText(g_patchConfig.zeroValuableItemPickupFix));
     fprintf(fp, "Screen Mode=%s\n", g_config.screenMode);
 
     fprintf(fp, "\n[Patches]\n");
     fprintf(fp, "BossProjectileFix=%s\n", g_config.patchBossProjectileFix);
     fprintf(fp, "Fractional60FpsTimer=%s\n", g_config.patchFractional60FpsTimer);
     fprintf(fp, "NormalizeScreenMode=%s\n", g_config.patchNormalizeScreenMode);
+    fprintf(fp, "ZeroValuableItemPickupFix=%s\n", g_config.patchZeroValuableItemPickupFix);
 
     fprintf(fp, "\n[KeyConfig]\n");
     WriteHex(fp, "GamePad", g_config.hasGamePad ? g_config.gamePad : kDefaultGamePad,

@@ -15,6 +15,10 @@
 #define MMX3_ENABLE_MISSING_MOVE_OBJECT_ARGUMENT_FIX 1
 #endif
 
+#ifndef MMX3_ENABLE_ZERO_VALUABLE_ITEM_PICKUP_FIX
+#define MMX3_ENABLE_ZERO_VALUABLE_ITEM_PICKUP_FIX 1
+#endif
+
 // ============================================================
 // Small x86 code emitter helpers
 // ============================================================
@@ -311,6 +315,74 @@ static void PatchMissingMoveObjectArgument(HMODULE exe)
 #endif
 }
 
+
+// ============================================================
+// Fix: Zero valuable item auto-pickup bug at 004D6ACE
+// ============================================================
+//
+// US / MEGAMAN X3 only.
+//
+// Root cause:
+//
+// FUN_004D65C7 is a valuable item update handler. It calls
+// FUN_004D6AB2 as the pickup gate. If the return value is non-zero,
+// the item transitions to state 3 / substate 0 and starts the pickup
+// sequence.
+//
+// FUN_004D6AB2 reads CurrentPlayer from [PTR_DAT_004F1620 + 0xB1].
+// For CurrentPlayer == 0 / X, it calls FUN_004D6AF8, which can reach
+// FUN_00427D2E(item, player), the standard object hitbox collision test.
+//
+// For CurrentPlayer != 0 / Zero, the original PC code takes a shortcut
+// and directly returns ((uint)PTR_DAT_004F1620 & 0xFFFFFF00), a non-zero
+// player token, without checking item/player collision. Since valuable
+// item update code treats any non-zero value as pickup success, visible
+// valuable items such as Heart Tanks and Sub Tanks are collected
+// automatically while Zero is the current player.
+//
+// Patch:
+//
+// Replace "test ecx, ecx" with "xor ecx, ecx" after CurrentPlayer is
+// loaded. This forces the following JE to take the normal X collision
+// path, so Zero also uses the standard hitbox collision check.
+//
+// Original:
+//
+// 004D6AC8  mov cl, [eax+000000B1]
+// 004D6ACE  test ecx, ecx
+// 004D6AD0  je 004D6AE2
+//
+static void PatchZeroValuableItemPickupFix(HMODULE exe)
+{
+#if MMX3_ENABLE_ZERO_VALUABLE_ITEM_PICKUP_FIX
+    if (!exe) {
+        LogLine("PatchZeroValuableItemPickupFix skipped: exe is null");
+        return;
+    }
+
+    BYTE *base = (BYTE *)exe;
+    BYTE *target = base + 0x000D6ACE; // US MEGAMAN X3 only: Ghidra VA 004D6ACE
+
+    if (target[0] != 0x85 || target[1] != 0xC9) {
+        LogLine(
+            "PatchZeroValuableItemPickupFix skipped: unexpected bytes at %p: %02X %02X",
+            target,
+            (unsigned int)target[0],
+            (unsigned int)target[1]);
+        return;
+    }
+
+    BYTE patch[2];
+    patch[0] = 0x33; // xor ecx, ecx
+    patch[1] = 0xC9;
+
+    LogLine("PatchZeroValuableItemPickupFix target=%p", target);
+    PatchMemory(target, patch, sizeof(patch));
+#else
+    LogLine("PatchZeroValuableItemPickupFix disabled");
+#endif
+}
+
 // ============================================================
 // Installer
 // ============================================================
@@ -334,5 +406,11 @@ void InstallBugFixes(HMODULE exe)
         PatchMissingMoveObjectArgument(exe);
     } else {
         LogLine("BossProjectileFix skipped: disabled by MMX3.conf");
+    }
+
+    if (g_patchConfig.zeroValuableItemPickupFix) {
+        PatchZeroValuableItemPickupFix(exe);
+    } else {
+        LogLine("ZeroValuableItemPickupFix skipped: disabled by MMX3.conf");
     }
 }

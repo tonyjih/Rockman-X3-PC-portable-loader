@@ -51,6 +51,7 @@ void LoadPatchConfigDefaults()
     g_patchConfig.bossProjectileFix = TRUE;
     g_patchConfig.fractional60FpsTimer = TRUE;
     g_patchConfig.normalizeScreenMode = TRUE;
+    g_patchConfig.zeroValuableItemPickupFix = TRUE;
 }
 
 BOOL GetPortableConfigBool(const char *section, const char *key, BOOL defaultValue)
@@ -96,6 +97,7 @@ void LoadPatchConfigFromPortableConfig()
     EnsurePortableConfigBool("Patches", "BossProjectileFix", g_patchConfig.bossProjectileFix);
     EnsurePortableConfigBool("Patches", "Fractional60FpsTimer", g_patchConfig.fractional60FpsTimer);
     EnsurePortableConfigBool("Patches", "NormalizeScreenMode", g_patchConfig.normalizeScreenMode);
+    EnsurePortableConfigBool("Patches", "ZeroValuableItemPickupFix", g_patchConfig.zeroValuableItemPickupFix);
 
     g_patchConfig.bossProjectileFix =
         GetPortableConfigBool("Patches", "BossProjectileFix", g_patchConfig.bossProjectileFix);
@@ -104,11 +106,15 @@ void LoadPatchConfigFromPortableConfig()
     g_patchConfig.normalizeScreenMode =
         GetPortableConfigBool("Patches", "NormalizeScreenMode", g_patchConfig.normalizeScreenMode);
 
+    g_patchConfig.zeroValuableItemPickupFix =
+        GetPortableConfigBool("Patches", "ZeroValuableItemPickupFix", g_patchConfig.zeroValuableItemPickupFix);
+
     LogLine(
-        "PatchConfig: BossProjectileFix=%s Fractional60FpsTimer=%s NormalizeScreenMode=%s",
+        "PatchConfig: BossProjectileFix=%s Fractional60FpsTimer=%s NormalizeScreenMode=%s ZeroValuableItemPickupFix=%s",
         MMX3BoolText(g_patchConfig.bossProjectileFix),
         MMX3BoolText(g_patchConfig.fractional60FpsTimer),
-        MMX3BoolText(g_patchConfig.normalizeScreenMode));
+        MMX3BoolText(g_patchConfig.normalizeScreenMode),
+        MMX3BoolText(g_patchConfig.zeroValuableItemPickupFix));
 }
 
 void LogLine(const char *fmt, ...)

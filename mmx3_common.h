@@ -21,6 +21,7 @@ struct MMX3PatchConfig
     BOOL bossProjectileFix;
     BOOL fractional60FpsTimer;
     BOOL normalizeScreenMode;
+    BOOL zeroValuableItemPickupFix;
 };
 
 extern MMX3PatchConfig g_patchConfig;
