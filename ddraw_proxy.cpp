@@ -92,6 +92,7 @@ static DWORD WINAPI InitThread(void *)
 	InstallTimingHooks(exe);
     InstallRegistryHooks(exe);
     InstallCdHooks(exe);
+    InstallExternalOggBgmHooks(exe);
     InstallBugFixes(exe);
     LogLine("InitThread done");
     return 0;

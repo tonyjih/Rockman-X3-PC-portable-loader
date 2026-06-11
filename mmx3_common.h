@@ -48,6 +48,7 @@ bool PatchIAT(
 
 void InstallRegistryHooks(HMODULE exe);
 void InstallCdHooks(HMODULE exe);
+void InstallExternalOggBgmHooks(HMODULE exe);
 void InstallBugFixes(HMODULE exe);
 void InstallTimingHooks(HMODULE exe);
 bool IsMegaManX3Build(HMODULE exe);

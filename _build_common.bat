@@ -78,6 +78,8 @@ cl /nologo /LD /EHsc /O2 /DMMX3_ENABLE_LOG=%MMX3_LOG% ^
   mmx3_common.cpp ^
   mmx3_registry.cpp ^
   mmx3_cd.cpp ^
+ mmx3_external_ogg.cpp ^
+ third_party\stb_vorbis.c ^
   mmx3_bugfix.cpp ^
   mmx3_timing.cpp ^
   user32.lib winmm.lib ^

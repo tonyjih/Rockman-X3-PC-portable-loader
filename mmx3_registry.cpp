@@ -627,19 +627,85 @@ static void LoadPortableConfig()
     NormalizeScreenModeValue(g_config.screenMode, sizeof(g_config.screenMode));
 }
 
+// MMX3_PRESERVE_UNKNOWN_CONFIG_SECTIONS_PATCH_V1
+// Keep loader-owned config writes from deleting custom sections such as [Audio].
+static bool IsPortableConfigOwnedSectionName(const char *section)
+{
+    if (!section) {
+        return false;
+    }
+
+    return lstrcmpiA(section, "Root") == 0 ||
+           lstrcmpiA(section, "Patches") == 0 ||
+           lstrcmpiA(section, "KeyConfig") == 0;
+}
+
+static void WritePreservedUnknownConfigSections(FILE *out)
+{
+    if (!out || !g_configPath[0]) {
+        return;
+    }
+
+    FILE *in = fopen(g_configPath, "r");
+    if (!in) {
+        return;
+    }
+
+    char currentSection[128] = "";
+    bool preserve = false;
+    bool wroteAny = false;
+    char line[4096];
+
+    while (fgets(line, sizeof(line), in)) {
+        char work[4096];
+        lstrcpynA(work, line, sizeof(work));
+        StripLineEnding(work);
+
+        char *s = Trim(work);
+        if (s[0] == '[') {
+            char *end = strchr(s, ']');
+            if (end) {
+                *end = '\0';
+                CopyString(currentSection, sizeof(currentSection), Trim(s + 1));
+                preserve = !IsPortableConfigOwnedSectionName(currentSection);
+            } else {
+                preserve = false;
+            }
+        }
+
+        if (preserve) {
+            if (!wroteAny) {
+                fprintf(out, "\n");
+            }
+            fputs(line, out);
+            wroteAny = true;
+        }
+    }
+
+    fclose(in);
+}
 
 static LONG SavePortableConfig()
 {
     LoadPortableConfig();
 
-    FILE *fp = fopen(g_configPath, "w");
+    char tempPath[MAX_PATH];
+    lstrcpynA(tempPath, g_configPath, sizeof(tempPath));
+    if (lstrlenA(tempPath) + 4 >= (int)sizeof(tempPath)) {
+        LogLine("Portable config temp path too long: %s", g_configPath);
+        return ERROR_FILENAME_EXCED_RANGE;
+    }
+    lstrcatA(tempPath, ".tmp");
+
+    FILE *fp = fopen(tempPath, "w");
     if (!fp) {
-        LogLine("Portable config write failed: %s", g_configPath);
+        LogLine("Portable config write failed: %s", tempPath);
         return ERROR_ACCESS_DENIED;
     }
 
     fprintf(fp, "# Mega Man X3 / Rockman X3 portable config\n");
-    fprintf(fp, "# MMX3.sav is intentionally stored separately.\n\n");
+    fprintf(fp, "# MMX3.sav is intentionally stored separately.\n");
+    fprintf(fp, "# Unknown sections are preserved when registry-backed values are saved.\n\n");
 
     fprintf(fp, "[Root]\n");
     fprintf(fp, "CD Drive=%s\n", g_config.cdDrive);
@@ -650,11 +716,22 @@ static LONG SavePortableConfig()
     fprintf(fp, "DoubleView=%s\n", g_config.doubleView);
     fprintf(fp, "Easy Mode=%s\n", g_config.easyMode);
     fprintf(fp, "FullScreen=%s\n", g_config.fullScreen);
+
     NormalizeScreenModeValue(g_config.screenMode, sizeof(g_config.screenMode));
-    CopyString(g_config.patchBossProjectileFix, sizeof(g_config.patchBossProjectileFix), MMX3BoolText(g_patchConfig.bossProjectileFix));
-    CopyString(g_config.patchFractional60FpsTimer, sizeof(g_config.patchFractional60FpsTimer), MMX3BoolText(g_patchConfig.fractional60FpsTimer));
-    CopyString(g_config.patchNormalizeScreenMode, sizeof(g_config.patchNormalizeScreenMode), MMX3BoolText(g_patchConfig.normalizeScreenMode));
-    CopyString(g_config.patchZeroValuableItemPickupFix, sizeof(g_config.patchZeroValuableItemPickupFix), MMX3BoolText(g_patchConfig.zeroValuableItemPickupFix));
+
+    CopyString(g_config.patchBossProjectileFix,
+               sizeof(g_config.patchBossProjectileFix),
+               MMX3BoolText(g_patchConfig.bossProjectileFix));
+    CopyString(g_config.patchFractional60FpsTimer,
+               sizeof(g_config.patchFractional60FpsTimer),
+               MMX3BoolText(g_patchConfig.fractional60FpsTimer));
+    CopyString(g_config.patchNormalizeScreenMode,
+               sizeof(g_config.patchNormalizeScreenMode),
+               MMX3BoolText(g_patchConfig.normalizeScreenMode));
+    CopyString(g_config.patchZeroValuableItemPickupFix,
+               sizeof(g_config.patchZeroValuableItemPickupFix),
+               MMX3BoolText(g_patchConfig.zeroValuableItemPickupFix));
+
     fprintf(fp, "Screen Mode=%s\n", g_config.screenMode);
 
     fprintf(fp, "\n[Patches]\n");
@@ -664,14 +741,29 @@ static LONG SavePortableConfig()
     fprintf(fp, "ZeroValuableItemPickupFix=%s\n", g_config.patchZeroValuableItemPickupFix);
 
     fprintf(fp, "\n[KeyConfig]\n");
-    WriteHex(fp, "GamePad", g_config.hasGamePad ? g_config.gamePad : kDefaultGamePad,
+    WriteHex(fp,
+             "GamePad",
+             g_config.hasGamePad ? g_config.gamePad : kDefaultGamePad,
              g_config.hasGamePad ? g_config.gamePadSize : sizeof(kDefaultGamePad));
-    WriteHex(fp, "Keyboard", g_config.hasKeyboard ? g_config.keyboard : kDefaultKeyboard,
+    WriteHex(fp,
+             "Keyboard",
+             g_config.hasKeyboard ? g_config.keyboard : kDefaultKeyboard,
              g_config.hasKeyboard ? g_config.keyboardSize : sizeof(kDefaultKeyboard));
-    WriteHex(fp, "SideWinder", g_config.hasSideWinder ? g_config.sideWinder : kDefaultSideWinder,
+    WriteHex(fp,
+             "SideWinder",
+             g_config.hasSideWinder ? g_config.sideWinder : kDefaultSideWinder,
              g_config.hasSideWinder ? g_config.sideWinderSize : sizeof(kDefaultSideWinder));
 
+    WritePreservedUnknownConfigSections(fp);
+
     fclose(fp);
+
+    if (!MoveFileExA(tempPath, g_configPath, MOVEFILE_REPLACE_EXISTING)) {
+        DWORD err = GetLastError();
+        DeleteFileA(tempPath);
+        LogLine("Portable config replace failed: %s error=%lu", g_configPath, (unsigned long)err);
+        return ERROR_WRITE_FAULT;
+    }
 
     LogLine("Portable config saved: %s", g_configPath);
     return ERROR_SUCCESS;
