@@ -265,7 +265,25 @@ static void PatchMissingMoveObjectArgument(HMODULE exe)
     BYTE *callee = base + 0x0002BCC7; // US MEGAMAN X3 only: Ghidra VA 0042BCC7
     BYTE *resume = base + 0x00076E65; // After original CALL
 
-    BYTE *gate = (BYTE *)VirtualAlloc(
+    
+
+    if (target[0] != 0xE8) {
+        LogLine(
+            "PatchMissingMoveObjectArgument skipped: expected CALL at %p, got %02X",
+            target,
+            (unsigned int)target[0]);
+        return;
+    }
+
+    BYTE *originalCallee = target + 5 + *(int32_t *)(target + 1);
+    if (originalCallee != callee) {
+        LogLine(
+            "PatchMissingMoveObjectArgument skipped: unexpected callee at %p: expected=%p actual=%p",
+            target,
+            callee,
+            originalCallee);
+        return;
+    }BYTE *gate = (BYTE *)VirtualAlloc(
         NULL,
         64,
         MEM_COMMIT | MEM_RESERVE,

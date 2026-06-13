@@ -97,7 +97,7 @@ static int g_bufferCount = 3;
 static int g_bufferMs = 60;
 
 static CRITICAL_SECTION g_lock;
-static volatile LONG g_lockReady = 0;
+static INIT_ONCE g_lockInitOnce = INIT_ONCE_STATIC_INIT;
 static volatile LONG g_gameSleepPauseActive = 0;
 static volatile LONG g_userSleepHold = 0;
 static volatile LONG g_sleepBlockedPlaySoundId = -1;
@@ -198,13 +198,17 @@ static void ResumeBlockedPlayAfterUserSleepHold();
 static int __cdecl HookRegisterStreamingWave(LPCSTR path, int soundId);
 static int CallOriginalRegisterStreamingWaveNative(LPCSTR path, int soundId);
 
+static BOOL CALLBACK InitOggLockOnce(PINIT_ONCE, PVOID, PVOID *)
+{
+    InitializeCriticalSection(&g_lock);
+    g_stopEvent = CreateEventA(NULL, TRUE, FALSE, NULL);
+    g_waveEvent = CreateEventA(NULL, FALSE, FALSE, NULL);
+    return TRUE;
+}
+
 static void EnsureLock()
 {
-    if (InterlockedCompareExchange(&g_lockReady, 1, 0) == 0) {
-        InitializeCriticalSection(&g_lock);
-        g_stopEvent = CreateEventA(NULL, TRUE, FALSE, NULL);
-        g_waveEvent = CreateEventA(NULL, FALSE, FALSE, NULL);
-    }
+    InitOnceExecuteOnce(&g_lockInitOnce, InitOggLockOnce, NULL, NULL);
 }
 
 

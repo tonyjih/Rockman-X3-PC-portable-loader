@@ -2,6 +2,7 @@
 
 #include <stdio.h>
 #include <string.h>
+#include <strsafe.h>
 #include <stdarg.h>
 
 char g_gameDir[MAX_PATH];
@@ -238,15 +239,9 @@ void BuildPaths()
         g_gameDriveRoot[0] = '\0';
     }
 
-    lstrcpynA(g_passwordPath, g_gameDir, MAX_PATH);
-    lstrcatA(g_passwordPath, "MMX3.sav");
-
-    lstrcpynA(g_configPath, g_gameDir, MAX_PATH);
-    lstrcatA(g_configPath, "MMX3.conf");
-
-
-    lstrcpynA(g_logPath, g_gameDir, MAX_PATH);
-    lstrcatA(g_logPath, "mmx3_portable.log");
+    StringCchPrintfA(g_passwordPath, MAX_PATH, "%sMMX3.sav", g_gameDir);
+    StringCchPrintfA(g_configPath, MAX_PATH, "%sMMX3.conf", g_gameDir);
+    StringCchPrintfA(g_logPath, MAX_PATH, "%smmx3_portable.log", g_gameDir);
 
 #if MMX3_ENABLE_LOG
     FILE *fp = fopen(g_logPath, "w");

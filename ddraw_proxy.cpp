@@ -1,6 +1,9 @@
 #include "mmx3_common.h"
 
 static HMODULE g_realDdraw = NULL;
+static INIT_ONCE g_loaderInitOnce = INIT_ONCE_STATIC_INIT;
+
+static void EnsureInitialized();
 
 static void LoadRealDdraw()
 {
@@ -18,6 +21,7 @@ static void LoadRealDdraw()
 
 static FARPROC GetRealDdrawProc(const char *name)
 {
+    EnsureInitialized();
     LoadRealDdraw();
 
     if (!g_realDdraw) {
@@ -77,24 +81,31 @@ static LONG WINAPI CrashHandler(EXCEPTION_POINTERS *ep)
     return EXCEPTION_CONTINUE_SEARCH;
 }
 
-static DWORD WINAPI InitThread(void *)
+static BOOL CALLBACK InitOnceCallback(PINIT_ONCE, PVOID, PVOID *)
 {
     BuildPaths();
     LoadPatchConfigFromPortableConfig();
-
     SetUnhandledExceptionFilter(CrashHandler);
     LogLine("CrashHandler installed");
-
     HMODULE exe = GetModuleHandleA(NULL);
-
     LogLine("Init exe=%p", exe);
-
-	InstallTimingHooks(exe);
+    InstallTimingHooks(exe);
     InstallRegistryHooks(exe);
     InstallCdHooks(exe);
     InstallExternalOggBgmHooks(exe);
     InstallBugFixes(exe);
-    LogLine("InitThread done");
+    LogLine("Loader init done");
+    return TRUE;
+}
+
+static void EnsureInitialized()
+{
+    InitOnceExecuteOnce(&g_loaderInitOnce, InitOnceCallback, NULL, NULL);
+}
+
+static DWORD WINAPI InitThread(void *)
+{
+    EnsureInitialized();
     return 0;
 }
 
@@ -102,7 +113,10 @@ BOOL WINAPI DllMain(HINSTANCE hinst, DWORD reason, LPVOID)
 {
     if (reason == DLL_PROCESS_ATTACH) {
         DisableThreadLibraryCalls(hinst);
-        CreateThread(NULL, 0, InitThread, NULL, 0, NULL);
+        HANDLE initThread = CreateThread(NULL, 0, InitThread, NULL, 0, NULL);
+        if (initThread) {
+            CloseHandle(initThread);
+        }
     }
 
     return TRUE;

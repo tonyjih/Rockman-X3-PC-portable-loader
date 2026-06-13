@@ -2,7 +2,7 @@
 
 Source package for a `ddraw.dll` proxy-based portable loader for the 1997 PC versions of **Mega Man X3** and **Rockman X3**.
 
-This project makes the game portable by virtualizing the original registry/CD checks, stores save/config data next to the game executable, includes a gameplay bugfix for a long-standing PC-version boss projectile crash, and contains an optional main-timer patch for smoother 60 FPS pacing.
+This project makes the game portable by virtualizing the original registry/CD checks, stores save/config data next to the game executable, includes a gameplay bugfix for a long-standing PC-version boss projectile crash, provides optional external OGG BGM replacement, and contains an optional main-timer patch for smoother 60 FPS pacing.
 
 ## Files
 
@@ -14,6 +14,8 @@ This project makes the game portable by virtualizing the original registry/CD ch
 | `mmx3_cd.cpp` | CD-ROM drive spoofing and fake MCI CDAudio device. |
 | `mmx3_bugfix.cpp` | Gameplay bugfixes and optional debug instrumentation. |
 | `mmx3_timing.cpp` | Timing API logging hooks and optional main-timer experiments, including the fractional 60 FPS timer hook. |
+| `mmx3_external_ogg.cpp` | External OGG BGM replacement and fake `IDirectSoundBuffer` bridge for native streaming BGM slots. |
+| `third_party/stb_vorbis.c` | Single-file OGG/Vorbis decoder used by the external OGG BGM path. |
 
 ## Build
 
@@ -32,6 +34,8 @@ x86 target
 ```
 
 Place the resulting `ddraw.dll` next to `MMX3.exe` or `RMX3.exe`.
+
+This is a game-specific compatibility loader, not a general-purpose DirectDraw wrapper. The proxy exports only the DirectDraw entry points required by the supported Mega Man X3 / Rockman X3 PC executables.
 
 ## Runtime outputs
 
@@ -113,6 +117,7 @@ The defaults keep all current compatibility fixes enabled. Set a value to `False
 | `BossProjectileFix` | Enables the PC boss projectile crash fix. |
 | `Fractional60FpsTimer` | Enables the fractional 60 FPS main-timer thread hook when the build timer mode is `MMX3_TIMER_MODE_FRACTIONAL_60`. |
 | `NormalizeScreenMode` | Normalizes problematic `Screen Mode=640,480,8` config data to `640,480,32` to avoid the broken modern fullscreen path. |
+| `ZeroValuableItemPickupFix` | Enables the Zero valuable item auto-pickup fix, forcing valuable item pickup through the normal collision path. |
 
 ## CD audio / CD-ROM behavior
 
@@ -128,6 +133,38 @@ RVA: 0x00003C00
 ```
 
 This allows the fake MCI CDAudio device to handle status/play/stop requests even when the original wrapper has not opened a real CD audio device.
+
+## External OGG BGM replacement
+
+`mmx3_external_ogg.cpp` can replace the original native streaming BGM resources with external `.ogg` files while keeping the game's original DirectSound buffer flow alive.
+
+When the game registers a streaming BGM file from the native `BGM` directory, the loader looks for a matching external OGG file with the same base name under:
+
+```text
+BGM_EXT\<same base name>.ogg
+```
+
+For example, a native BGM stream named `BGM\OPENING.SE` maps to:
+
+```text
+BGM_EXT\OPENING.ogg
+```
+
+The feature is controlled by the `[Audio]` section in `MMX3.conf`:
+
+```ini
+[Audio]
+ExternalOggBgm=True
+ExternalBgmPath=BGM_EXT
+ExternalOggBufferCount=3
+ExternalOggBufferMs=15
+ExternalOggPauseWithGameSleep=True
+ExternalOggReplaceNativeStream=True
+```
+
+If no matching external OGG file exists, the loader falls back to the original native streaming path.
+
+The fake DirectSound buffer bridge preserves the original `Play`, `Stop`, `SetVolume`, `SetPan`, and `Release` call flow so that existing fades, pause/sleep behavior, and slot lifecycle logic remain compatible with the original game code.
 
 ## Gameplay bugfixes
 
