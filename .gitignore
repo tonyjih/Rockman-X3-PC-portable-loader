@@ -4,3 +4,6 @@
 MMX3.conf
 /*.exp
 /*.lib
+/third_party/stb_vorbis.c
+*.ogg
+*.wav

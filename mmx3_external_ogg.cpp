@@ -18,7 +18,7 @@ extern "C" {
 }
 
 // ============================================================
-// External OGG BGM fake DirectSoundBuffer bridge clean v21 remove custom fadeout; native SetVolume drives fades
+// External OGG BGM fake DirectSoundBuffer bridge clean v22 OGG LOOPSTART/LOOPEND support; native SetVolume drives fades
 //
 // This version is intentionally based on a clean GitHub tree.
 // It does not use mmioOpenA/mmioClose silent stream bridging.
@@ -151,6 +151,13 @@ struct OggThreadParam {
     int bufferMs;
     int soundId;
     unsigned int startSample;
+};
+
+struct OggLoopInfo {
+    BOOL enabled;
+    unsigned int start;
+    unsigned int end;     // exclusive sample index
+    unsigned int length;
 };
 
 typedef int (__cdecl *RegisterStreamingWaveFn)(LPCSTR path, int soundId);
@@ -911,6 +918,165 @@ static void ClearExternalSlot(int soundId)
 }
 
 
+static OggLoopInfo EmptyOggLoopInfo()
+{
+    OggLoopInfo info;
+    info.enabled = FALSE;
+    info.start = 0;
+    info.end = 0;
+    info.length = 0;
+    return info;
+}
+
+static BOOL ParseU32Text(const char *text, unsigned int *out)
+{
+    if (!text || !out) return FALSE;
+
+    while (*text == ' ' || *text == '\t') ++text;
+    if (*text == '-') return FALSE;
+    if (*text == '+') ++text;
+    if (!*text) return FALSE;
+
+    char *end = NULL;
+    unsigned long value = strtoul(text, &end, 10);
+    if (end == text) return FALSE;
+
+    while (*end == ' ' || *end == '\t' || *end == '\r' || *end == '\n') ++end;
+    if (*end != '\0') return FALSE;
+
+    *out = (unsigned int)value;
+    return TRUE;
+}
+
+static BOOL ReadCommentU32(const char *comment, const char *key, unsigned int *out)
+{
+    if (!comment || !key || !out) return FALSE;
+
+    size_t keyLen = strlen(key);
+    if (_strnicmp(comment, key, keyLen) != 0) return FALSE;
+    if (comment[keyLen] != '=') return FALSE;
+
+    return ParseU32Text(comment + keyLen + 1, out);
+}
+
+static OggLoopInfo ReadOggLoopInfo(stb_vorbis *vorbis, const char *path)
+{
+    OggLoopInfo info = EmptyOggLoopInfo();
+    if (!vorbis) return info;
+
+    unsigned int loopStart = 0;
+    unsigned int loopEnd = 0;
+    unsigned int loopLength = 0;
+
+    BOOL hasStart = FALSE;
+    BOOL hasEnd = FALSE;
+    BOOL hasLength = FALSE;
+
+    stb_vorbis_comment comment = stb_vorbis_get_comment(vorbis);
+    for (int i = 0; i < comment.comment_list_length; ++i) {
+        const char *s = comment.comment_list ? comment.comment_list[i] : NULL;
+        unsigned int value = 0;
+
+        if (ReadCommentU32(s, "LOOPSTART", &value) ||
+            ReadCommentU32(s, "LOOP_START", &value)) {
+            loopStart = value;
+            hasStart = TRUE;
+            continue;
+        }
+
+        if (ReadCommentU32(s, "LOOPEND", &value) ||
+            ReadCommentU32(s, "LOOP_END", &value)) {
+            loopEnd = value;
+            hasEnd = TRUE;
+            continue;
+        }
+
+        if (ReadCommentU32(s, "LOOPLENGTH", &value) ||
+            ReadCommentU32(s, "LOOP_LENGTH", &value)) {
+            loopLength = value;
+            hasLength = TRUE;
+            continue;
+        }
+    }
+
+    unsigned int totalSamples = stb_vorbis_stream_length_in_samples(vorbis);
+
+    if (hasStart && hasEnd) {
+        info.start = loopStart;
+        info.end = loopEnd;
+    } else if (hasStart && hasLength && loopLength > 0 && loopStart <= 0xFFFFFFFFu - loopLength) {
+        info.start = loopStart;
+        info.end = loopStart + loopLength;
+    } else if (hasStart && totalSamples > loopStart) {
+        // LOOPSTART only: loop from LOOPSTART to EOF.
+        info.start = loopStart;
+        info.end = totalSamples;
+    } else {
+        return info;
+    }
+
+    if (hasStart && hasEnd && hasLength) {
+        unsigned int computed = 0;
+        if (info.end >= info.start) {
+            computed = info.end - info.start;
+        }
+
+        if (computed != loopLength) {
+            LogLine(
+                "ExternalOGG V22: LOOPLENGTH mismatch path=\"%s\" start=%u end=%u lengthTag=%u computed=%u; using start/end",
+                path ? path : "",
+                info.start,
+                info.end,
+                loopLength,
+                computed
+            );
+        }
+    }
+
+    if (info.end > totalSamples) {
+        LogLine(
+            "ExternalOGG V22: LOOPEND exceeds stream length path=\"%s\" end=%u total=%u; clamped",
+            path ? path : "",
+            info.end,
+            totalSamples
+        );
+        info.end = totalSamples;
+    }
+
+    if (info.end <= info.start) {
+        LogLine(
+            "ExternalOGG V22: invalid loop tags path=\"%s\" start=%u end=%u total=%u; disabled",
+            path ? path : "",
+            info.start,
+            info.end,
+            totalSamples
+        );
+        return EmptyOggLoopInfo();
+    }
+
+    info.length = info.end - info.start;
+    info.enabled = TRUE;
+
+    LogLine(
+        "ExternalOGG V22: loop tags path=\"%s\" start=%u end=%u length=%u total=%u",
+        path ? path : "",
+        info.start,
+        info.end,
+        info.length,
+        totalSamples
+    );
+
+    return info;
+}
+
+static unsigned int NormalizeLoopSample(unsigned int sample, const OggLoopInfo *loopInfo)
+{
+    if (!loopInfo || !loopInfo->enabled || loopInfo->length == 0) return sample;
+    if (sample < loopInfo->end) return sample;
+
+    return loopInfo->start + ((sample - loopInfo->start) % loopInfo->length);
+}
+
 static short ScaleSample(short sample, float gain)
 {
     int v = (int)((float)sample * gain);
@@ -977,24 +1143,100 @@ static void ApplyVolumeAndPan(short *samples, int sampleCount, int channels)
     }
 }
 
-static BOOL FillPcmBuffer(stb_vorbis *vorbis, short *dst, int sampleCount, int channels, BOOL loop)
-{
+static BOOL FillPcmBuffer(
+    stb_vorbis *vorbis,
+    short *dst,
+    int sampleCount,
+    int channels,
+    BOOL loop,
+    const OggLoopInfo *loopInfo,
+    unsigned int *decodeSample
+) {
     int filled = 0;
+    BOOL useTaggedLoop = (loop && loopInfo && loopInfo->enabled);
+    unsigned int pos = decodeSample ? *decodeSample : 0;
+
     while (filled < sampleCount) {
-        int got = stb_vorbis_get_samples_short_interleaved(vorbis, channels, dst + filled, sampleCount - filled);
-        int gotSamples = got * channels;
-        if (gotSamples > 0) {
-            filled += gotSamples;
+        int remainingShorts = sampleCount - filled;
+        int requestFrames = remainingShorts / channels;
+
+        if (requestFrames <= 0) {
+            break;
+        }
+
+        if (useTaggedLoop) {
+            if (pos >= loopInfo->end) {
+                int seekOk = stb_vorbis_seek(vorbis, loopInfo->start);
+                if (!seekOk) {
+                    LogLine(
+                        "ExternalOGG V22: loop seek failed start=%u end=%u; falling back to full-file loop",
+                        loopInfo->start,
+                        loopInfo->end
+                    );
+                    useTaggedLoop = FALSE;
+                } else {
+                    pos = loopInfo->start;
+                    if (decodeSample) *decodeSample = pos;
+                    continue;
+                }
+            }
+
+            if (useTaggedLoop) {
+                unsigned int framesToLoopEnd = loopInfo->end - pos;
+                if (framesToLoopEnd < (unsigned int)requestFrames) {
+                    requestFrames = (int)framesToLoopEnd;
+                }
+
+                if (requestFrames <= 0) {
+                    continue;
+                }
+            }
+        }
+
+        int requestShorts = requestFrames * channels;
+        int gotFrames = stb_vorbis_get_samples_short_interleaved(
+            vorbis,
+            channels,
+            dst + filled,
+            requestShorts
+        );
+        int gotShorts = gotFrames * channels;
+
+        if (gotShorts > 0) {
+            filled += gotShorts;
+            pos += (unsigned int)gotFrames;
+            if (decodeSample) *decodeSample = pos;
             continue;
         }
+
         if (loop) {
-            stb_vorbis_seek_start(vorbis);
+            unsigned int target = useTaggedLoop ? loopInfo->start : 0;
+            int seekOk = useTaggedLoop
+                ? stb_vorbis_seek(vorbis, target)
+                : stb_vorbis_seek_start(vorbis);
+
+            if (!seekOk) {
+                LogLine(
+                    "ExternalOGG V22: loop seek failed target=%u tagged=%s",
+                    target,
+                    MMX3BoolText(useTaggedLoop)
+                );
+
+                memset(dst + filled, 0, (sampleCount - filled) * sizeof(short));
+                ApplyVolumeAndPan(dst, sampleCount, channels);
+                return FALSE;
+            }
+
+            pos = target;
+            if (decodeSample) *decodeSample = pos;
             continue;
         }
+
         memset(dst + filled, 0, (sampleCount - filled) * sizeof(short));
         ApplyVolumeAndPan(dst, sampleCount, channels);
         return FALSE;
     }
+
     ApplyVolumeAndPan(dst, sampleCount, channels);
     return TRUE;
 }
@@ -1047,11 +1289,30 @@ static unsigned __stdcall OggThreadMain(void *arg)
         return 0;
     }
 
-    if (startSample != 0) {
-        int seekOk = stb_vorbis_seek(vorbis, startSample);
-        LogLine("ExternalOGG V15: resume seek soundId=%d sample=%u ok=%d path=\"%s\"", soundId, startSample, seekOk, path);
+    OggLoopInfo loopInfo = ReadOggLoopInfo(vorbis, path);
+    if (!loop) {
+        loopInfo.enabled = FALSE;
     }
-    InterlockedExchange(&g_currentSampleOffset, (LONG)stb_vorbis_get_sample_offset(vorbis));
+
+    unsigned int decodeSample = 0;
+    if (startSample != 0) {
+        unsigned int seekSample = NormalizeLoopSample(startSample, &loopInfo);
+        int seekOk = stb_vorbis_seek(vorbis, seekSample);
+        if (seekOk) {
+            decodeSample = seekSample;
+        } else {
+            decodeSample = 0;
+        }
+        LogLine(
+            "ExternalOGG V22: resume seek soundId=%d sample=%u actual=%u ok=%d path=\"%s\"",
+            soundId,
+            startSample,
+            decodeSample,
+            seekOk,
+            path
+        );
+    }
+    InterlockedExchange(&g_currentSampleOffset, (LONG)decodeSample);
 
     WAVEFORMATEX wf;
     ZeroMemory(&wf, sizeof(wf));
@@ -1093,8 +1354,8 @@ static unsigned __stdcall OggThreadMain(void *arg)
     for (int i = 0; i < bufferCount; ++i) {
         buffers[i] = (short *)GlobalAlloc(GPTR, bytesPerBuffer);
         if (!buffers[i]) break;
-        eofNoLoop = !FillPcmBuffer(vorbis, buffers[i], samplesPerBuffer, channels, loop) || eofNoLoop;
-        InterlockedExchange(&g_currentSampleOffset, (LONG)stb_vorbis_get_sample_offset(vorbis));
+        eofNoLoop = !FillPcmBuffer(vorbis, buffers[i], samplesPerBuffer, channels, loop, &loopInfo, &decodeSample) || eofNoLoop;
+        InterlockedExchange(&g_currentSampleOffset, (LONG)decodeSample);
         headers[i].lpData = (LPSTR)buffers[i];
         headers[i].dwBufferLength = bytesPerBuffer;
         waveOutPrepareHeader(g_waveOut, &headers[i], sizeof(WAVEHDR));
@@ -1131,8 +1392,8 @@ static unsigned __stdcall OggThreadMain(void *arg)
                     memset(buffers[i], 0, samplesPerBuffer * sizeof(short));
                     InterlockedExchange(&g_naturalEnded, 1);
                 } else {
-                    eofNoLoop = !FillPcmBuffer(vorbis, buffers[i], samplesPerBuffer, channels, loop);
-                    InterlockedExchange(&g_currentSampleOffset, (LONG)stb_vorbis_get_sample_offset(vorbis));
+                    eofNoLoop = !FillPcmBuffer(vorbis, buffers[i], samplesPerBuffer, channels, loop, &loopInfo, &decodeSample);
+                    InterlockedExchange(&g_currentSampleOffset, (LONG)decodeSample);
                     if (eofNoLoop) {
                         InterlockedExchange(&g_naturalEnded, 1);
                         if (!eofLogged) {
@@ -1752,7 +2013,7 @@ void InstallExternalOggBgmHooks(HMODULE exe)
     if (g_bufferMs < 20) g_bufferMs = 20;
     if (g_bufferMs > 250) g_bufferMs = 250;
 
-    LogLine("ExternalOGG config: enabled=%s path=%s bufferCount=%d bufferMs=%d pauseWithGameSleep=%s replaceNativeStream=%s debugLog=%s mode=fake-ds-buffer-bridge-v21-clean", MMX3BoolText(g_enabled), g_externalBgmPath, g_bufferCount, g_bufferMs, MMX3BoolText(g_pauseWithGameSleep), MMX3BoolText(g_replaceNativeStream), MMX3BoolText(g_verboseLog));
+    LogLine("ExternalOGG config: enabled=%s path=%s bufferCount=%d bufferMs=%d pauseWithGameSleep=%s replaceNativeStream=%s debugLog=%s mode=fake-ds-buffer-bridge-v22-loop-tags", MMX3BoolText(g_enabled), g_externalBgmPath, g_bufferCount, g_bufferMs, MMX3BoolText(g_pauseWithGameSleep), MMX3BoolText(g_replaceNativeStream), MMX3BoolText(g_verboseLog));
 
     if (!g_enabled || !g_replaceNativeStream) {
         LogLine("ExternalOGG: fake-buffer bridge disabled");
